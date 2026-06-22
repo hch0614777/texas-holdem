@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>皇家俱乐部 - 联机德州扑克</title>
+  <!-- Google Fonts: Outfit & Noto Sans SC -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+SC:wght@300;400;700&display=swap" rel="stylesheet">
+  <!-- CSS Stylesheet -->
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Lobby / Login Screen -->
+  <div id="lobby-screen" class="screen active">
+    <div class="lobby-card">
+      <div class="lobby-header">
+        <div class="logo-icon">♠</div>
+        <h1>皇家德州扑克</h1>
+        <p>Royal Texas Hold'em Club</p>
+      </div>
+      <div class="form-group">
+        <label for="nickname-input">玩家昵称</label>
+        <input type="text" id="nickname-input" placeholder="输入您的昵称" maxlength="10">
+      </div>
+      <div class="form-group">
+        <label for="room-input">房间号</label>
+        <input type="text" id="room-input" placeholder="输入房号或新建房间" maxlength="8">
+      </div>
+      <button id="join-btn" class="btn btn-primary">进入俱乐部</button>
+    </div>
+  </div>
+
+  <!-- Game Screen -->
+  <div id="game-screen" class="screen">
+    <!-- Top Bar -->
+    <header class="game-header">
+      <div class="room-info">
+        <span class="room-label">房间号:</span>
+        <span id="display-room-id" class="room-value">----</span>
+      </div>
+      <div class="header-logo">♣ 皇家俱乐部 ♣</div>
+      <div class="header-actions">
+        <button id="stand-btn" class="btn btn-secondary" style="display: none;">离开座位</button>
+        <button id="start-game-btn" class="btn btn-gold" style="display: none;">开始发牌</button>
+      </div>
+    </header>
+
+    <!-- Main Workspace -->
+    <div class="game-container">
+      
+      <!-- Poker Table Area -->
+      <div class="table-area">
+        <div class="poker-table">
+          <div class="table-inner">
+            
+            <!-- Community Cards & Pot -->
+            <div class="table-center">
+              <div class="pot-display">
+                <div class="pot-icon">🪙</div>
+                <div class="pot-details">
+                  <span class="pot-label">总底池</span>
+                  <span id="pot-amount" class="pot-value">0</span>
+                </div>
+              </div>
+              <div id="community-cards" class="community-cards-container">
+                <!-- Communal cards injected here -->
+              </div>
+            </div>
+
+            <!-- Player Seats (0 to 7) -->
+            <div class="seats-container">
+              <!-- Seat 0 (Top Left) -->
+              <div class="player-seat seat-0" data-seat="0">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 1 (Top Center-Left) -->
+              <div class="player-seat seat-1" data-seat="1">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 2 (Top Center-Right) -->
+              <div class="player-seat seat-2" data-seat="2">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 3 (Top Right) -->
+              <div class="player-seat seat-3" data-seat="3">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 4 (Bottom Right) -->
+              <div class="player-seat seat-4" data-seat="4">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 5 (Bottom Center-Right) -->
+              <div class="player-seat seat-5" data-seat="5">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 6 (Bottom Center-Left) -->
+              <div class="player-seat seat-6" data-seat="6">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+
+              <!-- Seat 7 (Bottom Left) -->
+              <div class="player-seat seat-7" data-seat="7">
+                <button class="sit-btn">加入 +</button>
+                <div class="player-card" style="display: none;">
+                  <div class="avatar-ring"></div>
+                  <div class="player-info">
+                    <div class="player-name">--</div>
+                    <div class="player-chips">--</div>
+                  </div>
+                  <div class="player-cards"></div>
+                  <div class="dealer-button" style="display: none;">D</div>
+                  <div class="player-bet" style="display: none;">0</div>
+                  <div class="player-status-tag" style="display: none;">Fold</div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+      <!-- Chat & Actions Panel -->
+      <aside class="side-panel">
+        <div class="chat-container">
+          <div class="chat-header">牌局日志与交流</div>
+          <div id="chat-messages" class="chat-messages">
+            <!-- Chat history and action logs go here -->
+          </div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" placeholder="输入聊天内容..." maxlength="30">
+            <button id="send-msg-btn">发送</button>
+          </div>
+        </div>
+      </aside>
+
+    </div>
+
+    <!-- Action Controls (Floating at the bottom) -->
+    <div id="action-panel" class="action-panel" style="display: none;">
+      <div class="action-row action-values">
+        <span class="call-hint">当前需跟注: <strong id="call-value-hint">0</strong></span>
+        <span class="raise-hint">当前可加注: <strong id="raise-value-hint">0</strong></span>
+      </div>
+      <div class="action-row bet-slider-row" id="raise-slider-container">
+        <button class="slider-adjust-btn" id="slider-minus">-</button>
+        <input type="range" id="raise-slider" min="0" max="1000" step="1" value="0">
+        <button class="slider-adjust-btn" id="slider-plus">+</button>
+        <span class="slider-val-box" id="slider-value-display">0</span>
+      </div>
+      <div class="action-row quick-bet-row" id="quick-bets-container">
+        <button class="btn btn-quick" data-ratio="1">跟注额</button>
+        <button class="btn btn-quick" data-ratio="2">2x 大盲</button>
+        <button class="btn btn-quick" data-ratio="3">3x 大盲</button>
+        <button class="btn btn-quick" data-ratio="pot">底池大小</button>
+        <button class="btn btn-quick" id="btn-quick-allin">全押</button>
+      </div>
+      <div class="action-row primary-actions">
+        <button id="fold-btn" class="btn btn-action btn-fold">弃牌 (Fold)</button>
+        <button id="check-btn" class="btn btn-action btn-check">让牌 (Check)</button>
+        <button id="call-btn" class="btn btn-action btn-call">跟注 (Call)</button>
+        <button id="raise-btn" class="btn btn-action btn-raise">加注 (Raise)</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Socket.io connection script -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Game Client logic -->
+  <script src="js/game.js"></script>
+</body>
+</html>

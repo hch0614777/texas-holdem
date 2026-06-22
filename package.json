@@ -1,0 +1,14 @@
+{
+  "name": "texas-holdem",
+  "version": "1.0.0",
+  "description": "Multiplayer Texas Hold'em Game",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "share": "npx localtunnel --port 3000"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
