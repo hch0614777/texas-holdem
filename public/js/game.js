@@ -120,6 +120,7 @@ const foldBtn = document.getElementById('fold-btn');
 const checkBtn = document.getElementById('check-btn');
 const callBtn = document.getElementById('call-btn');
 const raiseBtn = document.getElementById('raise-btn');
+const pkBtn = document.getElementById('pk-btn');
 
 // 1. Lobby screen interactions
 joinBtn.addEventListener('click', () => {
@@ -159,8 +160,18 @@ document.querySelectorAll('.player-seat').forEach(seatElem => {
   const sitBtn = seatElem.querySelector('.sit-btn');
   const seatNum = parseInt(seatElem.getAttribute('data-seat'));
 
-  sitBtn.addEventListener('click', () => {
+  sitBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
     socket.emit('sitDown', { seat: seatNum });
+  });
+
+  seatElem.addEventListener('click', () => {
+    if (isSelectingPkTarget) {
+      if (seatElem.classList.contains('pk-target-selectable')) {
+        socket.emit('action', { type: 'pk', targetSeat: seatNum });
+        cancelPkSelection();
+      }
+    }
   });
 });
 
@@ -338,7 +349,7 @@ function renderSeats(state) {
         seatElem.classList.add('active');
       }
 
-      // Status tags (Fold, Check, All-in)
+      // Status tags (Fold, Check, All-in, Seen, Blind)
       const statusTag = playerCard.querySelector('.player-status-tag');
       statusTag.style.display = 'none';
       statusTag.className = 'player-status-tag';
@@ -350,6 +361,14 @@ function renderSeats(state) {
       } else if (player.isAllIn) {
         statusTag.textContent = 'All-in';
         statusTag.classList.add('allin');
+        statusTag.style.display = 'block';
+      } else if (state.gameMode === 'zhajinhua' && player.seen) {
+        statusTag.textContent = '已看牌';
+        statusTag.classList.add('check');
+        statusTag.style.display = 'block';
+      } else if (state.gameMode === 'zhajinhua' && !player.seen && state.gameState !== 'waiting' && state.gameState !== 'showdown') {
+        statusTag.textContent = '闷牌';
+        statusTag.classList.add('fold');
         statusTag.style.display = 'block';
       }
 
@@ -388,7 +407,23 @@ function renderPlayerCards(seatIdx, cards, folded, handDescription) {
   if (!cardsContainer) return;
 
   cardsContainer.innerHTML = '';
+  cardsContainer.className = 'player-cards';
+
   if (!folded && cards && cards.length > 0) {
+    const isUnseenZhaJinHua = roomState && roomState.gameMode === 'zhajinhua' && cards[0] === null;
+
+    if (isUnseenZhaJinHua) {
+      cardsContainer.classList.add('zhajinhua-unseen');
+      if (!cardsContainer.dataset.lookBound) {
+        cardsContainer.dataset.lookBound = 'true';
+        cardsContainer.addEventListener('click', () => {
+          if (roomState && roomState.gameMode === 'zhajinhua') {
+            socket.emit('lookCards');
+          }
+        });
+      }
+    }
+
     cards.forEach(c => {
       cardsContainer.innerHTML += getCardHTML(c);
     });
@@ -422,44 +457,116 @@ function renderCommunityCards(cards) {
   }
 }
 
+let isSelectingPkTarget = false;
+
+function togglePkSelectionMode() {
+  if (!roomState) return;
+  const me = roomState.players[mySeatIndex];
+  if (!me || me.folded) return;
+
+  isSelectingPkTarget = !isSelectingPkTarget;
+  if (isSelectingPkTarget) {
+    showToast('请点击选择一位玩家进行比牌 ⚔️', 'info');
+    
+    for (let i = 0; i < 8; i++) {
+      if (i === mySeatIndex) continue;
+      const player = roomState.players[i];
+      if (player && !player.folded && player.chips > 0) {
+        const seatElem = document.querySelector(`.player-seat[data-seat="${i}"]`);
+        if (seatElem) {
+          seatElem.classList.add('pk-target-selectable');
+        }
+      }
+    }
+  } else {
+    cancelPkSelection();
+  }
+}
+
+function cancelPkSelection() {
+  isSelectingPkTarget = false;
+  document.querySelectorAll('.player-seat').forEach(el => {
+    el.classList.remove('pk-target-selectable');
+  });
+}
+
 // Setup Betting actions panel for active player
 function setupActionPanel(state, me) {
   actionPanel.style.display = 'flex';
+  cancelPkSelection();
 
-  const toCall = state.currentBetToCall - me.currentBet;
-  callValueHint.textContent = toCall > 0 ? toCall : 0;
-  raiseValueHint.textContent = state.minRaise;
+  let toCall = 0;
+  let minRaiseTotal = 0;
+  let maxRaiseTotal = 0;
 
-  // Check vs Call buttons visibility
-  if (toCall <= 0) {
-    checkBtn.style.display = 'inline-flex';
-    callBtn.style.display = 'none';
-  } else {
+  if (state.gameMode === 'zhajinhua') {
+    const toCallUnit = state.currentUnitBetToCall - (me.currentUnitBet || 0);
+    toCall = me.seen ? 2 * toCallUnit : toCallUnit;
+    if (toCall < 0) toCall = 0;
+
+    const step = state.largeBlind / 2;
+    minRaiseTotal = state.currentUnitBetToCall + step;
+    maxRaiseTotal = (me.currentUnitBet || 0) + (me.seen ? Math.floor(me.chips / 2) : me.chips);
+
     checkBtn.style.display = 'none';
-    callBtn.textContent = `跟注 (Call) ${toCall}`;
+    pkBtn.style.display = 'inline-flex';
+
+    const actionText = me.seen ? '明注跟注' : '闷牌跟注';
+    callBtn.textContent = `${actionText} (Call) ${toCall}`;
     callBtn.style.display = 'inline-flex';
-  }
 
-  // Raise slider ranges
-  const minRaiseTotal = state.minRaise;
-  const maxRaiseTotal = me.chips + me.currentBet; // Total bet size including current bet
+    callValueHint.textContent = toCall;
+    raiseValueHint.textContent = minRaiseTotal;
 
-  if (me.chips <= toCall) {
-    // I don't have enough chips to raise, only fold or call All-in
-    raiseBtn.style.display = 'none';
-    raiseSliderContainer.style.display = 'none';
-    quickBetsContainer.style.display = 'none';
-    callBtn.textContent = `全押跟注 (All-in) ${me.chips}`;
+    if (me.chips <= toCall) {
+      raiseBtn.style.display = 'none';
+      raiseSliderContainer.style.display = 'none';
+      quickBetsContainer.style.display = 'none';
+      callBtn.textContent = `全押跟注 (All-in) ${me.chips}`;
+    } else {
+      raiseBtn.style.display = 'inline-flex';
+      raiseSliderContainer.style.display = 'flex';
+      quickBetsContainer.style.display = 'flex';
+
+      raiseSlider.min = minRaiseTotal;
+      raiseSlider.max = maxRaiseTotal;
+      raiseSlider.value = minRaiseTotal;
+      updateSliderDisplay();
+    }
   } else {
-    raiseBtn.style.display = 'inline-flex';
-    raiseSliderContainer.style.display = 'flex';
-    quickBetsContainer.style.display = 'flex';
+    toCall = state.currentBetToCall - me.currentBet;
+    minRaiseTotal = state.minRaise;
+    maxRaiseTotal = me.chips + me.currentBet;
 
-    // Slider setup
-    raiseSlider.min = minRaiseTotal;
-    raiseSlider.max = maxRaiseTotal;
-    raiseSlider.value = minRaiseTotal;
-    updateSliderDisplay();
+    pkBtn.style.display = 'none';
+
+    callValueHint.textContent = toCall > 0 ? toCall : 0;
+    raiseValueHint.textContent = state.minRaise;
+
+    if (toCall <= 0) {
+      checkBtn.style.display = 'inline-flex';
+      callBtn.style.display = 'none';
+    } else {
+      checkBtn.style.display = 'none';
+      callBtn.textContent = `跟注 (Call) ${toCall}`;
+      callBtn.style.display = 'inline-flex';
+    }
+
+    if (me.chips <= toCall) {
+      raiseBtn.style.display = 'none';
+      raiseSliderContainer.style.display = 'none';
+      quickBetsContainer.style.display = 'none';
+      callBtn.textContent = `全押跟注 (All-in) ${me.chips}`;
+    } else {
+      raiseBtn.style.display = 'inline-flex';
+      raiseSliderContainer.style.display = 'flex';
+      quickBetsContainer.style.display = 'flex';
+
+      raiseSlider.min = minRaiseTotal;
+      raiseSlider.max = maxRaiseTotal;
+      raiseSlider.value = minRaiseTotal;
+      updateSliderDisplay();
+    }
   }
 }
 
@@ -468,7 +575,7 @@ raiseSlider.addEventListener('input', updateSliderDisplay);
 
 sliderMinus.addEventListener('click', () => {
   let val = parseInt(raiseSlider.value);
-  const step = roomState ? roomState.largeBlind : 20;
+  const step = roomState ? (roomState.gameMode === 'zhajinhua' ? roomState.largeBlind / 2 : roomState.largeBlind) : 20;
   val = Math.max(parseInt(raiseSlider.min), val - step);
   raiseSlider.value = val;
   updateSliderDisplay();
@@ -476,14 +583,26 @@ sliderMinus.addEventListener('click', () => {
 
 sliderPlus.addEventListener('click', () => {
   let val = parseInt(raiseSlider.value);
-  const step = roomState ? roomState.largeBlind : 20;
+  const step = roomState ? (roomState.gameMode === 'zhajinhua' ? roomState.largeBlind / 2 : roomState.largeBlind) : 20;
   val = Math.min(parseInt(raiseSlider.max), val + step);
   raiseSlider.value = val;
   updateSliderDisplay();
 });
 
 function updateSliderDisplay() {
-  sliderValueDisplay.textContent = raiseSlider.value;
+  if (roomState && roomState.gameMode === 'zhajinhua') {
+    const me = roomState.players[mySeatIndex];
+    if (me) {
+      const targetUnit = parseInt(raiseSlider.value);
+      const toRaiseUnit = targetUnit - (me.currentUnitBet || 0);
+      const cost = me.seen ? 2 * toRaiseUnit : toRaiseUnit;
+      sliderValueDisplay.textContent = `单注 ${targetUnit} (消耗 🪙${cost})`;
+    } else {
+      sliderValueDisplay.textContent = raiseSlider.value;
+    }
+  } else {
+    sliderValueDisplay.textContent = raiseSlider.value;
+  }
 }
 
 // Quick bets clicks
@@ -494,18 +613,28 @@ document.querySelectorAll('.btn-quick[data-ratio]').forEach(btn => {
     let val = 0;
 
     const me = roomState.players[mySeatIndex];
-    const toCall = roomState.currentBetToCall - me.currentBet;
-    const bb = roomState.largeBlind;
-
-    if (ratio === '1') {
-      // Match current Call amount
-      val = roomState.currentBetToCall;
-    } else if (ratio === '2') {
-      val = bb * 2;
-    } else if (ratio === '3') {
-      val = bb * 3;
-    } else if (ratio === 'pot') {
-      val = roomState.pot + (roomState.currentBetToCall * 2); // approximate pot raise
+    if (roomState.gameMode === 'zhajinhua') {
+      const step = roomState.largeBlind / 2;
+      if (ratio === '1') {
+        val = roomState.currentUnitBetToCall;
+      } else if (ratio === '2') {
+        val = roomState.currentUnitBetToCall + step;
+      } else if (ratio === '3') {
+        val = roomState.currentUnitBetToCall + step * 2;
+      } else if (ratio === 'pot') {
+        val = roomState.currentUnitBetToCall + step * 4;
+      }
+    } else {
+      const bb = roomState.largeBlind;
+      if (ratio === '1') {
+        val = roomState.currentBetToCall;
+      } else if (ratio === '2') {
+        val = bb * 2;
+      } else if (ratio === '3') {
+        val = bb * 3;
+      } else if (ratio === 'pot') {
+        val = roomState.pot + (roomState.currentBetToCall * 2);
+      }
     }
 
     // Clamp value
@@ -524,20 +653,28 @@ btnQuickAllIn.addEventListener('click', () => {
 
 // Action buttons sockets emitting
 foldBtn.addEventListener('click', () => {
+  cancelPkSelection();
   socket.emit('action', { type: 'fold' });
 });
 
 checkBtn.addEventListener('click', () => {
+  cancelPkSelection();
   socket.emit('action', { type: 'check' });
 });
 
 callBtn.addEventListener('click', () => {
+  cancelPkSelection();
   socket.emit('action', { type: 'call' });
 });
 
 raiseBtn.addEventListener('click', () => {
+  cancelPkSelection();
   const amount = parseInt(raiseSlider.value);
   socket.emit('action', { type: 'raise', amount });
+});
+
+pkBtn.addEventListener('click', () => {
+  togglePkSelectionMode();
 });
 
 // Helper: Card HTML builder

@@ -45,28 +45,57 @@ io.on('connection', (socket) => {
     sendRoomState(room);
   });
 
-  // Switch Game Mode (texas or zhajinhua)
-  socket.on('switchGameMode', ({ mode }) => {
-    const roomId = socket.roomId;
-    const room = rooms[roomId];
-    if (!room) return;
+    // Switch Game Mode (texas or zhajinhua)
+    socket.on('switchGameMode', ({ mode }) => {
+      const roomId = socket.roomId;
+      const room = rooms[roomId];
+      if (!room) return;
 
-    if (room.gameState !== 'waiting') {
-      socket.emit('notification', { type: 'error', message: '游戏进行中，无法切换游戏模式' });
-      return;
-    }
+      if (room.gameState !== 'waiting') {
+        socket.emit('notification', { type: 'error', message: '游戏进行中，无法切换游戏模式' });
+        return;
+      }
 
-    if (mode === 'texas' || mode === 'zhajinhua') {
-      room.gameMode = mode;
-      const modeName = mode === 'texas' ? '德州扑克' : '炸金花';
+      if (mode === 'texas' || mode === 'zhajinhua') {
+        room.gameMode = mode;
+        const modeName = mode === 'texas' ? '德州扑克' : '炸金花';
+        io.to(roomId).emit('chatMessage', {
+          name: '系统',
+          text: `游戏模式已切换为: ${modeName}`,
+          time: new Date().toLocaleTimeString()
+        });
+        sendRoomState(room);
+      }
+    });
+
+    // Look Cards in Zha Jin Hua
+    socket.on('lookCards', () => {
+      const roomId = socket.roomId;
+      const room = rooms[roomId];
+      if (!room || room.gameState === 'waiting' || room.gameState === 'showdown') return;
+
+      const playerIndex = room.players.findIndex(p => p && p.id === socket.id);
+      if (playerIndex === -1) return;
+
+      const p = room.players[playerIndex];
+      if (p.folded || p.seen) return;
+
+      p.seen = true;
       io.to(roomId).emit('chatMessage', {
         name: '系统',
-        text: `游戏模式已切换为: ${modeName}`,
+        text: `👀 ${p.name} 看了手牌（已看牌）`,
         time: new Date().toLocaleTimeString()
       });
+
+      // Emit actual cards only to this player
+      socket.emit('playerCards', {
+        cards: p.cards,
+        folded: p.folded,
+        handDescription: evaluate3CardHand(p.cards).name
+      });
+
       sendRoomState(room);
-    }
-  });
+    });
 
   // Sit Down
   socket.on('sitDown', ({ seat }) => {
@@ -160,8 +189,8 @@ io.on('connection', (socket) => {
     startNewHand(room);
   });
 
-  // Player Action: fold, check, call, raise
-  socket.on('action', ({ type, amount }) => {
+  // Player Action: fold, check, call, raise, pk
+  socket.on('action', ({ type, amount, targetSeat }) => {
     const roomId = socket.roomId;
     const room = rooms[roomId];
     if (!room || room.gameState === 'waiting' || room.gameState === 'showdown') return;
@@ -179,6 +208,10 @@ io.on('connection', (socket) => {
       handleFold(room, playerIndex);
       actionExecuted = true;
     } else if (type === 'check') {
+      if (room.gameMode === 'zhajinhua') {
+        socket.emit('notification', { type: 'error', message: '炸金花模式下必须跟注、加注、比牌或弃牌' });
+        return;
+      }
       // Can check only if currentBet matches currentBetToCall
       if (player.currentBet === room.currentBetToCall) {
         io.to(roomId).emit('chatMessage', {
@@ -191,8 +224,16 @@ io.on('connection', (socket) => {
         socket.emit('notification', { type: 'error', message: '不能让牌，你需要跟注或弃牌' });
       }
     } else if (type === 'call') {
-      const callAmount = room.currentBetToCall - player.currentBet;
-      if (callAmount <= 0) {
+      let cost = 0;
+      if (room.gameMode === 'zhajinhua') {
+        const toCallUnit = room.currentUnitBetToCall - player.currentUnitBet;
+        cost = player.seen ? 2 * toCallUnit : toCallUnit;
+        if (cost < 0) cost = 0;
+      } else {
+        cost = room.currentBetToCall - player.currentBet;
+      }
+
+      if (cost <= 0 && room.gameMode !== 'zhajinhua') {
         // Essentially a check
         io.to(roomId).emit('chatMessage', {
           name: '系统',
@@ -201,10 +242,18 @@ io.on('connection', (socket) => {
         });
         actionExecuted = true;
       } else {
-        const chipsToBet = Math.min(callAmount, player.chips);
+        const chipsToBet = Math.min(cost, player.chips);
         player.chips -= chipsToBet;
         player.currentBet += chipsToBet;
         player.totalBetInHand += chipsToBet;
+        
+        if (room.gameMode === 'zhajinhua') {
+          player.currentUnitBet = room.currentUnitBetToCall;
+        }
+
+        const actionText = player.seen ? '明注跟注' : '闷牌跟注';
+        const displayLabel = room.gameMode === 'zhajinhua' ? `${actionText} (Call)` : '跟注 (Call)';
+
         if (player.chips === 0) {
           player.isAllIn = true;
           io.to(roomId).emit('chatMessage', {
@@ -215,47 +264,131 @@ io.on('connection', (socket) => {
         } else {
           io.to(roomId).emit('chatMessage', {
             name: '系统',
-            text: `${player.name}: 跟注 (Call) 筹码: ${player.currentBet}`,
+            text: `${player.name}: ${displayLabel} 筹码: ${player.currentBet}`,
             time: new Date().toLocaleTimeString()
           });
         }
         actionExecuted = true;
       }
     } else if (type === 'raise') {
-      const raiseTotal = parseInt(amount);
-      if (isNaN(raiseTotal) || raiseTotal < room.minRaise) {
-        socket.emit('notification', { type: 'error', message: `加注额必须至少为 ${room.minRaise}` });
+      if (room.gameMode === 'zhajinhua') {
+        const targetUnit = parseInt(amount);
+        const step = room.largeBlind / 2;
+        const minUnitRaise = room.currentUnitBetToCall + step;
+        if (isNaN(targetUnit) || targetUnit < minUnitRaise) {
+          socket.emit('notification', { type: 'error', message: `最小加注单注必须为 ${minUnitRaise}` });
+          return;
+        }
+
+        const toRaiseUnit = targetUnit - player.currentUnitBet;
+        const cost = player.seen ? 2 * toRaiseUnit : toRaiseUnit;
+
+        if (cost > player.chips) {
+          socket.emit('notification', { type: 'error', message: '你的筹码不足以完成此加注' });
+          return;
+        }
+
+        player.chips -= cost;
+        player.currentBet += cost;
+        player.totalBetInHand += cost;
+        player.currentUnitBet = targetUnit;
+
+        if (player.chips === 0) {
+          player.isAllIn = true;
+        }
+
+        room.currentUnitBetToCall = targetUnit;
+        room.lastRaiserIndex = playerIndex;
+
+        const actionText = player.seen ? '明注加注' : '闷牌加注';
+        io.to(roomId).emit('chatMessage', {
+          name: '系统',
+          text: `${player.name}: ${actionText} 到单注 ${targetUnit} (消耗筹码 ${cost})`,
+          time: new Date().toLocaleTimeString()
+        });
+        actionExecuted = true;
+      } else {
+        const raiseTotal = parseInt(amount);
+        if (isNaN(raiseTotal) || raiseTotal < room.minRaise) {
+          socket.emit('notification', { type: 'error', message: `加注额必须至少为 ${room.minRaise}` });
+          return;
+        }
+
+        const additionalChips = raiseTotal - player.currentBet;
+        if (additionalChips > player.chips) {
+          socket.emit('notification', { type: 'error', message: '你的筹码不足以完成此加注' });
+          return;
+        }
+
+        player.chips -= additionalChips;
+        player.currentBet = raiseTotal;
+        player.totalBetInHand += additionalChips;
+
+        if (player.chips === 0) {
+          player.isAllIn = true;
+        }
+
+        const prevBetToCall = room.currentBetToCall;
+        room.currentBetToCall = raiseTotal;
+        room.minRaise = raiseTotal + (raiseTotal - prevBetToCall);
+        room.lastRaiserIndex = playerIndex;
+
+        io.to(roomId).emit('chatMessage', {
+          name: '系统',
+          text: `${player.name}: 加注到 (Raise to) ${raiseTotal}`,
+          time: new Date().toLocaleTimeString()
+        });
+        actionExecuted = true;
+      }
+    } else if (type === 'pk') {
+      if (room.gameMode !== 'zhajinhua') return;
+      const targetSeatIdx = parseInt(targetSeat);
+      const targetPlayer = room.players[targetSeatIdx];
+      if (isNaN(targetSeatIdx) || !targetPlayer || targetPlayer.folded || targetSeatIdx === playerIndex) {
+        socket.emit('notification', { type: 'error', message: '无效的比牌目标' });
         return;
       }
 
-      const additionalChips = raiseTotal - player.currentBet;
-      if (additionalChips > player.chips) {
-        socket.emit('notification', { type: 'error', message: '你的筹码不足以完成此加注' });
+      // Cost to PK is unit call amount
+      const toCallUnit = room.currentUnitBetToCall - player.currentUnitBet;
+      const cost = player.seen ? 2 * toCallUnit : toCallUnit;
+
+      if (player.chips < cost) {
+        socket.emit('notification', { type: 'error', message: '筹码不足，无法发起比牌' });
         return;
       }
 
-      // Execute raise
-      player.chips -= additionalChips;
-      player.currentBet = raiseTotal;
-      player.totalBetInHand += additionalChips;
-
+      // Deduct chips
+      player.chips -= cost;
+      player.currentBet += cost;
+      player.totalBetInHand += cost;
+      player.currentUnitBet = room.currentUnitBetToCall;
       if (player.chips === 0) {
         player.isAllIn = true;
       }
 
-      // Update minimum raise details
-      const prevBetToCall = room.currentBetToCall;
-      room.currentBetToCall = raiseTotal;
-      room.minRaise = raiseTotal + (raiseTotal - prevBetToCall);
+      // Compare hands
+      const myHand = evaluate3CardHand(player.cards);
+      const targetHand = evaluate3CardHand(targetPlayer.cards);
+      const cmp = compareScores(myHand.score, targetHand.score);
 
-      // Set last raiser index so we know who raised last (to complete betting loop)
-      room.lastRaiserIndex = playerIndex;
+      let winnerPlayer, loserPlayer;
+      if (cmp >= 0) {
+        winnerPlayer = player;
+        loserPlayer = targetPlayer;
+      } else {
+        winnerPlayer = targetPlayer;
+        loserPlayer = player;
+      }
+
+      loserPlayer.folded = true;
 
       io.to(roomId).emit('chatMessage', {
         name: '系统',
-        text: `${player.name}: 加注到 (Raise to) ${raiseTotal}`,
+        text: `⚔️ 【比牌】${player.name} 向 ${targetPlayer.name} 发起比牌！${loserPlayer.name} 战败弃牌！`,
         time: new Date().toLocaleTimeString()
       });
+
       actionExecuted = true;
     }
 
@@ -367,6 +500,8 @@ function startNewHand(room) {
       p.folded = false;
       p.isAllIn = false;
       p.showdownHand = null;
+      p.seen = false;
+      p.currentUnitBet = 0;
     }
   });
 
@@ -417,6 +552,12 @@ function startNewHand(room) {
   // Set action constraints
   room.currentBetToCall = room.largeBlind;
   room.minRaise = room.largeBlind * 2;
+
+  if (room.gameMode === 'zhajinhua') {
+    sbPlayer.currentUnitBet = room.largeBlind / 2;
+    bbPlayer.currentUnitBet = room.largeBlind;
+    room.currentUnitBetToCall = room.largeBlind;
+  }
 
   // Action starts left of Big Blind (or SB in heads-up)
   if (activePlayers.length === 2) {
@@ -541,11 +682,23 @@ function nextTurn(room) {
         p.currentBet = 0;
       }
     });
+
+    // Format card symbols for chat
+    const suitSymbols = { H: '♥', D: '♦', C: '♣', S: '♠' };
+    const valDisplays = { 11: 'J', 12: 'Q', 13: 'K', 14: 'A' };
+    const cardsText = winner.cards.map(c => `${suitSymbols[c.suit]}${valDisplays[c.value] || c.value}`).join(' ');
     
+    let handName = '';
+    if (room.gameMode === 'zhajinhua') {
+      handName = evaluate3CardHand(winner.cards).name;
+    } else {
+      handName = getBestHand([...winner.cards, ...room.communityCards]).name;
+    }
+
     winner.chips += room.pot;
     io.to(room.roomId).emit('chatMessage', {
       name: '系统',
-      text: `所有人弃牌，${winner.name} 赢得了底池: ${room.pot} 筹码`,
+      text: `🏆 所有人弃牌，${winner.name} 赢得了底池: ${room.pot} 筹码！手牌为: [${cardsText}] (${handName})`,
       time: new Date().toLocaleTimeString()
     });
     
@@ -558,10 +711,10 @@ function nextTurn(room) {
   let nextIdx = getNextSeatedPlayerIndex(room, room.currentPlayerIndex, p => !p.folded && !p.isAllIn);
 
   // Check if the betting round is complete:
-  // 1. All active, non-all-in players have acted (actionCount >= active players count)
-  // 2. All active, non-all-in players have equal bets matching currentBetToCall
   const activeNotAllIn = room.players.filter(p => p && !p.folded && !p.isAllIn);
-  const allMatched = activeNotAllIn.every(p => p.currentBet === room.currentBetToCall);
+  const allMatched = room.gameMode === 'zhajinhua'
+    ? activeNotAllIn.every(p => p.currentUnitBet === room.currentUnitBetToCall)
+    : activeNotAllIn.every(p => p.currentBet === room.currentBetToCall);
 
   if (allMatched && (room.actionCount >= activeNotAllIn.length || (activeNotAllIn.length === 0))) {
     // Round complete! Advance to next street
@@ -761,6 +914,7 @@ function sendRoomState(room) {
     dealerIndex: room.dealerIndex,
     currentPlayerIndex: room.currentPlayerIndex,
     currentBetToCall: room.currentBetToCall,
+    currentUnitBetToCall: room.currentUnitBetToCall || room.largeBlind,
     minRaise: room.minRaise,
     smallBlind: room.smallBlind,
     largeBlind: room.largeBlind,
@@ -775,7 +929,9 @@ function sendRoomState(room) {
         totalBetInHand: p.totalBetInHand,
         folded: p.folded,
         isAllIn: p.isAllIn,
-        showdownHand: p.showdownHand
+        showdownHand: p.showdownHand,
+        seen: p.seen,
+        currentUnitBet: p.currentUnitBet
       };
     })
   });
@@ -784,28 +940,32 @@ function sendRoomState(room) {
   room.players.forEach(p => {
     if (p) {
       let handDescription = '';
-      if (p.cards && p.cards.length > 0 && !p.folded) {
-        if (room.gameMode === 'zhajinhua') {
+      let cardsToSend = p.cards;
+
+      if (room.gameMode === 'zhajinhua') {
+        if (p.seen || room.gameState === 'showdown') {
+          cardsToSend = p.cards;
           if (p.cards.length === 3) {
-            const bestHand = evaluate3CardHand(p.cards);
-            handDescription = bestHand.name;
-          } else {
-            handDescription = '发牌中';
+            handDescription = evaluate3CardHand(p.cards).name;
           }
         } else {
-          if (p.cards.length === 2) {
-            if (room.communityCards.length === 0) {
-              handDescription = '起手底牌';
-            } else {
-              const fullHand = [...p.cards, ...room.communityCards];
-              const bestHand = getBestHand(fullHand);
-              handDescription = bestHand.name;
-            }
+          cardsToSend = p.cards.map(() => null);
+          handDescription = '闷牌中';
+        }
+      } else {
+        if (p.cards.length === 2) {
+          if (room.communityCards.length === 0) {
+            handDescription = '起手底牌';
+          } else {
+            const fullHand = [...p.cards, ...room.communityCards];
+            const bestHand = getBestHand(fullHand);
+            handDescription = bestHand.name;
           }
         }
       }
+
       io.to(p.id).emit('playerCards', {
-        cards: p.cards,
+        cards: cardsToSend,
         folded: p.folded,
         handDescription: handDescription
       });
