@@ -209,9 +209,9 @@ socket.on('chatMessage', ({ name, text, time }) => {
 });
 
 // Private hole cards dealt to this player
-socket.on('playerCards', ({ cards, folded }) => {
+socket.on('playerCards', ({ cards, folded, handDescription }) => {
   if (mySeatIndex !== -1 && roomState) {
-    renderPlayerCards(mySeatIndex, cards, folded);
+    renderPlayerCards(mySeatIndex, cards, folded, handDescription);
   }
 });
 
@@ -283,6 +283,8 @@ function renderSeats(state) {
     if (player === null) {
       // Empty seat
       playerCard.style.display = 'none';
+      const handHint = playerCard.querySelector('.hand-hint');
+      if (handHint) handHint.style.display = 'none';
       if (isSpectator) {
         sitBtn.style.display = 'block';
       } else {
@@ -338,6 +340,12 @@ function renderSeats(state) {
         statusTag.style.display = 'block';
       }
 
+      // Hide hand hint for folded/waiting/showdown states
+      const handHint = playerCard.querySelector('.hand-hint');
+      if (handHint && (player.folded || state.gameState === 'waiting' || state.gameState === 'showdown')) {
+        handHint.style.display = 'none';
+      }
+
       // Render cards placeholders or showdown cards
       const cardsContainer = playerCard.querySelector('.player-cards');
       cardsContainer.innerHTML = '';
@@ -357,7 +365,7 @@ function renderSeats(state) {
 }
 
 // Render cards for the self player (hole cards)
-function renderPlayerCards(seatIdx, cards, folded) {
+function renderPlayerCards(seatIdx, cards, folded, handDescription) {
   const seatElem = document.querySelector(`.player-seat[data-seat="${seatIdx}"]`);
   if (!seatElem) return;
 
@@ -366,9 +374,38 @@ function renderPlayerCards(seatIdx, cards, folded) {
 
   cardsContainer.innerHTML = '';
   if (!folded && cards && cards.length > 0) {
+    cardsContainer.classList.add('peek-mode');
+    
+    // Add click handler to toggle peek reveal (bind only once)
+    if (!cardsContainer.dataset.peekBound) {
+      cardsContainer.dataset.peekBound = 'true';
+      cardsContainer.addEventListener('click', () => {
+        cardsContainer.classList.toggle('revealed');
+      });
+    }
+
     cards.forEach(c => {
       cardsContainer.innerHTML += getCardHTML(c);
     });
+  } else {
+    cardsContainer.classList.remove('peek-mode', 'revealed');
+  }
+
+  // Render hand description hint above player's card
+  const playerCard = seatElem.querySelector('.player-card');
+  if (playerCard) {
+    let handHint = playerCard.querySelector('.hand-hint');
+    if (!handHint) {
+      handHint = document.createElement('div');
+      handHint.className = 'hand-hint';
+      playerCard.appendChild(handHint);
+    }
+    if (handDescription && !folded && cards && cards.length > 0) {
+      handHint.textContent = handDescription;
+      handHint.style.display = 'block';
+    } else {
+      handHint.style.display = 'none';
+    }
   }
 }
 

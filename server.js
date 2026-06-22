@@ -742,9 +742,20 @@ function sendRoomState(room) {
   // Send cards individually to seated players
   room.players.forEach(p => {
     if (p) {
+      let handDescription = '';
+      if (p.cards && p.cards.length === 2 && !p.folded) {
+        if (room.communityCards.length === 0) {
+          handDescription = '起手底牌';
+        } else {
+          const fullHand = [...p.cards, ...room.communityCards];
+          const bestHand = getBestHand(fullHand);
+          handDescription = bestHand.name;
+        }
+      }
       io.to(p.id).emit('playerCards', {
         cards: p.cards,
-        folded: p.folded
+        folded: p.folded,
+        handDescription: handDescription
       });
     }
   });

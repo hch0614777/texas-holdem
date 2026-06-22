@@ -874,3 +874,63 @@ body {
     padding: 30px 10px;
   }
 }
+
+/* Style for peeking cards (Anti-peeping mode) */
+.player-cards.peek-mode {
+  cursor: pointer;
+  position: relative;
+}
+.player-cards.peek-mode .poker-card {
+  filter: blur(6px) brightness(0.5);
+  transition: filter 0.2s ease, transform 0.2s ease;
+}
+.player-cards.peek-mode.revealed .poker-card {
+  filter: none;
+}
+/* Peek text indicator overlay */
+.player-cards.peek-mode::after {
+  content: '点击眯牌';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(15, 23, 42, 0.9);
+  color: var(--gold);
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 0.6rem;
+  font-weight: bold;
+  pointer-events: none;
+  white-space: nowrap;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+  border: 1px solid rgba(223, 177, 91, 0.4);
+  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+  z-index: 10;
+}
+.player-cards.peek-mode.revealed::after {
+  opacity: 0;
+}
+
+/* Hand rank hint display */
+.hand-hint {
+  position: absolute;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid var(--gold);
+  color: white;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  top: -42px;
+  white-space: nowrap;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  z-index: 8;
+  animation: pulse-hint 1.5s infinite alternate;
+}
+
+@keyframes pulse-hint {
+  0% { box-shadow: 0 0 4px rgba(223, 177, 91, 0.3); }
+  100% { box-shadow: 0 0 10px rgba(223, 177, 91, 0.7); }
+}
+
