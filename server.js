@@ -2,7 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const path = require('path');
-const { getBestHand, compareScores } = require('./evaluator');
+const { getBestHand, compareScores, evaluate3CardHand } = require('./evaluator');
 
 const app = express();
 const server = http.createServer(app);
@@ -43,6 +43,29 @@ io.on('connection', (socket) => {
 
     // Send current room state
     sendRoomState(room);
+  });
+
+  // Switch Game Mode (texas or zhajinhua)
+  socket.on('switchGameMode', ({ mode }) => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room) return;
+
+    if (room.gameState !== 'waiting') {
+      socket.emit('notification', { type: 'error', message: '游戏进行中，无法切换游戏模式' });
+      return;
+    }
+
+    if (mode === 'texas' || mode === 'zhajinhua') {
+      room.gameMode = mode;
+      const modeName = mode === 'texas' ? '德州扑克' : '炸金花';
+      io.to(roomId).emit('chatMessage', {
+        name: '系统',
+        text: `游戏模式已切换为: ${modeName}`,
+        time: new Date().toLocaleTimeString()
+      });
+      sendRoomState(room);
+    }
   });
 
   // Sit Down
@@ -290,6 +313,7 @@ io.on('connection', (socket) => {
 function createRoom(roomId) {
   return {
     roomId: roomId,
+    gameMode: 'texas', // texas or zhajinhua
     gameState: 'waiting', // waiting, preflop, flop, turn, river, showdown
     players: Array(8).fill(null), // 8 seats
     spectators: new Set(),
@@ -378,11 +402,13 @@ function startNewHand(room) {
   bbPlayer.totalBetInHand = bbChips;
   if (bbPlayer.chips === 0) bbPlayer.isAllIn = true;
 
-  // Deal 2 hole cards to each seated player
+  // Deal hole cards to each seated player (2 for Texas, 3 for Zha Jin Hua)
+  const cardsCount = room.gameMode === 'zhajinhua' ? 3 : 2;
   room.players.forEach(p => {
     if (p && p.chips + p.totalBetInHand > 0) {
-      p.cards.push(room.deck.pop());
-      p.cards.push(room.deck.pop());
+      for (let c = 0; c < cardsCount; c++) {
+        p.cards.push(room.deck.pop());
+      }
     } else if (p) {
       p.folded = true; // No chips = auto fold / spectate
     }
@@ -431,11 +457,21 @@ function advanceStreet(room) {
 
   // If only 1 or 0 players can make further moves, run out the board!
   if (activeNotAllIn.length <= 1 && activeCount > 1) {
-    runOutBoard(room);
+    if (room.gameMode === 'zhajinhua') {
+      room.gameState = 'showdown';
+      handleShowdown(room);
+    } else {
+      runOutBoard(room);
+    }
     return;
   }
 
   if (room.gameState === 'preflop') {
+    if (room.gameMode === 'zhajinhua') {
+      room.gameState = 'showdown';
+      handleShowdown(room);
+      return;
+    }
     room.gameState = 'flop';
     room.communityCards.push(room.deck.pop()); // burn a card? we just pop standard
     room.communityCards.push(room.deck.pop());
@@ -560,10 +596,14 @@ function handleShowdown(room) {
 
   const activePlayers = room.players.filter(p => p && !p.folded);
   
-  // Calculate best 5-card hand for each player
+  // Calculate best hand for each player
   activePlayers.forEach(p => {
-    const fullHand = [...p.cards, ...room.communityCards];
-    p.showdownHand = getBestHand(fullHand);
+    if (room.gameMode === 'zhajinhua') {
+      p.showdownHand = evaluate3CardHand(p.cards);
+    } else {
+      const fullHand = [...p.cards, ...room.communityCards];
+      p.showdownHand = getBestHand(fullHand);
+    }
   });
 
   // Standard showdown pot split logic
@@ -714,6 +754,7 @@ function endHand(room) {
 function sendRoomState(room) {
   io.to(room.roomId).emit('roomState', {
     roomId: room.roomId,
+    gameMode: room.gameMode || 'texas',
     gameState: room.gameState,
     communityCards: room.communityCards,
     pot: room.pot,
@@ -743,13 +784,24 @@ function sendRoomState(room) {
   room.players.forEach(p => {
     if (p) {
       let handDescription = '';
-      if (p.cards && p.cards.length === 2 && !p.folded) {
-        if (room.communityCards.length === 0) {
-          handDescription = '起手底牌';
+      if (p.cards && p.cards.length > 0 && !p.folded) {
+        if (room.gameMode === 'zhajinhua') {
+          if (p.cards.length === 3) {
+            const bestHand = evaluate3CardHand(p.cards);
+            handDescription = bestHand.name;
+          } else {
+            handDescription = '发牌中';
+          }
         } else {
-          const fullHand = [...p.cards, ...room.communityCards];
-          const bestHand = getBestHand(fullHand);
-          handDescription = bestHand.name;
+          if (p.cards.length === 2) {
+            if (room.communityCards.length === 0) {
+              handDescription = '起手底牌';
+            } else {
+              const fullHand = [...p.cards, ...room.communityCards];
+              const bestHand = getBestHand(fullHand);
+              handDescription = bestHand.name;
+            }
+          }
         }
       }
       io.to(p.id).emit('playerCards', {

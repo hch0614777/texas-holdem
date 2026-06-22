@@ -96,6 +96,7 @@ const joinBtn = document.getElementById('join-btn');
 const displayRoomId = document.getElementById('display-room-id');
 const standBtn = document.getElementById('stand-btn');
 const startGameBtn = document.getElementById('start-game-btn');
+const gameModeSelect = document.getElementById('game-mode-select');
 const potAmount = document.getElementById('pot-amount');
 const communityCards = document.getElementById('community-cards');
 
@@ -169,6 +170,10 @@ standBtn.addEventListener('click', () => {
 
 startGameBtn.addEventListener('click', () => {
   socket.emit('startGame');
+});
+
+gameModeSelect.addEventListener('change', () => {
+  socket.emit('switchGameMode', { mode: gameModeSelect.value });
 });
 
 // 4. Socket Listeners
@@ -250,6 +255,14 @@ socket.on('roomState', (state) => {
     startGameBtn.style.display = 'inline-flex';
   } else {
     startGameBtn.style.display = 'none';
+  }
+
+  // Game Mode Selector visibility
+  if (state.gameState === 'waiting' && mySeatIndex !== -1) {
+    gameModeSelect.style.display = 'inline-flex';
+    gameModeSelect.value = state.gameMode || 'texas';
+  } else {
+    gameModeSelect.style.display = 'none';
   }
 
   // 5. Action Panel setup
@@ -356,9 +369,11 @@ function renderSeats(state) {
           cardsContainer.innerHTML += getCardHTML(c);
         });
       } else if (state.gameState !== 'waiting' && !player.folded && i !== mySeatIndex) {
-        // Opponent active hand backcards
-        cardsContainer.innerHTML += getCardHTML(null);
-        cardsContainer.innerHTML += getCardHTML(null);
+        // Opponent active hand backcards (2 for Texas, 3 for Zha Jin Hua)
+        const opponentCardsCount = state.gameMode === 'zhajinhua' ? 3 : 2;
+        for (let c = 0; c < opponentCardsCount; c++) {
+          cardsContainer.innerHTML += getCardHTML(null);
+        }
       }
     }
   }
@@ -374,21 +389,9 @@ function renderPlayerCards(seatIdx, cards, folded, handDescription) {
 
   cardsContainer.innerHTML = '';
   if (!folded && cards && cards.length > 0) {
-    cardsContainer.classList.add('peek-mode');
-    
-    // Add click handler to toggle peek reveal (bind only once)
-    if (!cardsContainer.dataset.peekBound) {
-      cardsContainer.dataset.peekBound = 'true';
-      cardsContainer.addEventListener('click', () => {
-        cardsContainer.classList.toggle('revealed');
-      });
-    }
-
     cards.forEach(c => {
       cardsContainer.innerHTML += getCardHTML(c);
     });
-  } else {
-    cardsContainer.classList.remove('peek-mode', 'revealed');
   }
 
   // Render hand description hint above player's card

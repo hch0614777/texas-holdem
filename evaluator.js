@@ -135,4 +135,59 @@ function compareScores(scoreA, scoreB) {
   return 0;
 }
 
-module.exports = { getBestHand, compareScores };
+// Evaluate 3-card hands for Zha Jin Hua
+function evaluate3CardHand(hand) {
+  const sorted = [...hand].sort((a, b) => b.value - a.value);
+  const v0 = sorted[0].value;
+  const v1 = sorted[1].value;
+  const v2 = sorted[2].value;
+  
+  const s0 = sorted[0].suit;
+  const s1 = sorted[1].suit;
+  const s2 = sorted[2].suit;
+  
+  const isFlush = (s0 === s1 && s1 === s2);
+  
+  let isStraight = false;
+  if (v0 - v1 === 1 && v1 - v2 === 1) {
+    isStraight = true;
+  } else if (v0 === 14 && v1 === 3 && v2 === 2) {
+    isStraight = true;
+  }
+  
+  // 6: 豹子 (Three of a Kind)
+  if (v0 === v1 && v1 === v2) {
+    return { rank: 6, name: '豹子 (Three of a Kind)', score: [6, v0] };
+  }
+  
+  // 5: 同花顺 / 顺金 (Straight Flush)
+  if (isFlush && isStraight) {
+    const straightHigh = (v0 === 14 && v1 === 3) ? 3 : v0;
+    return { rank: 5, name: '同花顺 (Straight Flush)', score: [5, straightHigh] };
+  }
+  
+  // 4: 同花 / 金花 (Flush)
+  if (isFlush) {
+    return { rank: 4, name: '同花 (Flush)', score: [4, v0, v1, v2] };
+  }
+  
+  // 3: 顺子 / 拖拉机 (Straight)
+  if (isStraight) {
+    const straightHigh = (v0 === 14 && v1 === 3) ? 3 : v0;
+    return { rank: 3, name: '顺子 (Straight)', score: [3, straightHigh] };
+  }
+  
+  // 2: 对子 (Pair)
+  if (v0 === v1) {
+    return { rank: 2, name: '对子 (Pair)', score: [2, v0, v2] };
+  } else if (v1 === v2) {
+    return { rank: 2, name: '对子 (Pair)', score: [2, v1, v0] };
+  } else if (v0 === v2) {
+    return { rank: 2, name: '对子 (Pair)', score: [2, v0, v1] };
+  }
+  
+  // 1: 单张 / 高牌 (High Card)
+  return { rank: 1, name: '高牌 (High Card)', score: [1, v0, v1, v2] };
+}
+
+module.exports = { getBestHand, compareScores, evaluate3CardHand };
