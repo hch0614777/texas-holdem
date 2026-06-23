@@ -121,7 +121,7 @@ function sendRoomState(roomId) {
       serializedPlayers[role] = {
         id: room.players[role].id,
         name: room.players[role].name,
-        energy: room.players[role].energy,
+        cardCount: room.players[role].cards ? room.players[role].cards.length : 0,
         color: role === 'p1' ? 'black' : 'white'
       };
     } else {
@@ -129,6 +129,7 @@ function sendRoomState(roomId) {
     }
   }
 
+  // 1. Broadcast public state to all clients
   io.to(roomId).emit('roomState', {
     roomId: room.roomId,
     gameState: room.gameState,
@@ -145,6 +146,14 @@ function sendRoomState(roomId) {
     },
     turnCount: room.turnCount
   });
+
+  // 2. Emit private hand list to each player individually
+  for (const role of ['p1', 'p2']) {
+    const player = room.players[role];
+    if (player && player.cards) {
+      io.to(player.id).emit('handCards', { cards: player.cards });
+    }
+  }
 }
 
 function saveHistory(room) {
@@ -159,8 +168,8 @@ function saveHistory(room) {
       p1: room.fog.p1 ? { ...room.fog.p1 } : null,
       p2: room.fog.p2 ? { ...room.fog.p2 } : null
     },
-    p1Energy: room.players.p1 ? room.players.p1.energy : 0,
-    p2Energy: room.players.p2 ? room.players.p2.energy : 0,
+    p1Cards: room.players.p1 ? [...room.players.p1.cards] : [],
+    p2Cards: room.players.p2 ? [...room.players.p2.cards] : [],
     turnCount: room.turnCount
   });
   // Cap history size to 30 moves
@@ -193,10 +202,10 @@ io.on('connection', (socket) => {
     // Auto assign role
     let role = 'spectator';
     if (!room.players.p1) {
-      room.players.p1 = { id: socket.id, name, energy: 30 };
+      room.players.p1 = { id: socket.id, name, cards: [] };
       role = 'p1';
     } else if (!room.players.p2 && room.players.p1.id !== socket.id) {
-      room.players.p2 = { id: socket.id, name, energy: 35 }; // P2 starts with slightly more energy
+      room.players.p2 = { id: socket.id, name, cards: [] };
       role = 'p2';
     } else {
       room.spectators.push({ id: socket.id, name });
@@ -239,8 +248,14 @@ io.on('connection', (socket) => {
     room.winningLine = null;
     room.history = [];
     room.turnCount = 1;
-    room.players.p1.energy = 30;
-    room.players.p2.energy = 35;
+    // Deal 3 random starting cards to each player
+    room.players.p1.cards = [];
+    room.players.p2.cards = [];
+    const skillKeys = Object.keys(SKILLS);
+    for (let i = 0; i < 3; i++) {
+      room.players.p1.cards.push(skillKeys[Math.floor(Math.random() * skillKeys.length)]);
+      room.players.p2.cards.push(skillKeys[Math.floor(Math.random() * skillKeys.length)]);
+    }
     room.silenced = { p1: false, p2: false };
     room.fog = { p1: null, p2: null };
     room.doubleDropState = { active: false, firstStone: null };
@@ -357,10 +372,13 @@ io.on('connection', (socket) => {
     if (!skill) return;
 
     const p = room.players[role];
-    if (p.energy < skill.cost) {
-      socket.emit('notification', { type: 'error', message: `能量不足！使用该技能需要 ${skill.cost} 点能量` });
+    if (!p.cards || !p.cards.includes(skillId)) {
+      socket.emit('notification', { type: 'error', message: '你手牌中没有该技能卡！' });
       return;
     }
+
+    // Remove card from hand
+    p.cards.splice(p.cards.indexOf(skillId), 1);
 
     // Execute Skill Logic
     let success = false;
@@ -373,6 +391,7 @@ io.on('connection', (socket) => {
       case 'COQUETRY': // 撒娇 (Undo)
         if (room.history.length < 2) {
           socket.emit('notification', { type: 'error', message: '当前没有可以撤销的对手棋子' });
+          p.cards.push('COQUETRY'); // Restore card
           room.history.pop(); // Remove the saved state
           return;
         }
@@ -390,8 +409,6 @@ io.on('connection', (socket) => {
         };
         room.turnCount = prevState.turnCount;
         
-        // Subtract cost from energy
-        p.energy -= skill.cost;
         success = true;
         logMsg = `💖 ${p.name} 使用了【撒娇】，撤销了对方上一步棋子！`;
         io.to(roomId).emit('triggerCoquetryEffect', { sender: p.name });
@@ -402,6 +419,7 @@ io.on('connection', (socket) => {
         const { centerR, centerC } = params || {};
         if (centerR === undefined || centerC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择吹乱的区域中心' });
+          p.cards.push('SCATTER'); // Restore card
           room.history.pop();
           return;
         }
@@ -422,6 +440,7 @@ io.on('connection', (socket) => {
 
         if (stones.length === 0) {
           socket.emit('notification', { type: 'error', message: '选定区域内没有任何棋子' });
+          p.cards.push('SCATTER'); // Restore card
           room.history.pop();
           return;
         }
@@ -453,7 +472,6 @@ io.on('connection', (socket) => {
           }
         });
 
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🌪️ ${p.name} 使用了【飞沙走石】，把以 (${centerR}, ${centerC}) 为中心的棋子吹得乱七八糟！`;
         break;
@@ -461,7 +479,6 @@ io.on('connection', (socket) => {
       case 'SILENCE': // 静如止水 (Silence)
         const opponent = role === 'p1' ? 'p2' : 'p1';
         room.silenced[opponent] = true;
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🤫 ${p.name} 使用了【静如止水】，封印了对方的技能！对方下回合不能使用任何技能。`;
         break;
@@ -470,18 +487,19 @@ io.on('connection', (socket) => {
         const { convertR, convertC } = params || {};
         if (convertR === undefined || convertC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择要转化的棋子' });
+          p.cards.push('CONVERT'); // Restore card
           room.history.pop();
           return;
         }
         const enemyVal = role === 'p1' ? 2 : 1;
         if (room.board[convertR][convertC] !== enemyVal) {
           socket.emit('notification', { type: 'error', message: '只能转化对手的棋子' });
+          p.cards.push('CONVERT'); // Restore card
           room.history.pop();
           return;
         }
 
         room.board[convertR][convertC] = role === 'p1' ? 1 : 2;
-        p.energy -= skill.cost;
         success = true;
         logMsg = `💘 ${p.name} 使用了【偷心贼】，将 (${convertR}, ${convertC}) 的棋子据为己有！`;
         break;
@@ -490,6 +508,7 @@ io.on('connection', (socket) => {
         const { myR, myC, oppR, oppC } = params || {};
         if (myR === undefined || myC === undefined || oppR === undefined || oppC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择己方和对方的一枚棋子来进行位置互换' });
+          p.cards.push('SWAP'); // Restore card
           room.history.pop();
           return;
         }
@@ -498,6 +517,7 @@ io.on('connection', (socket) => {
 
         if (room.board[myR][myC] !== myVal || room.board[oppR][oppC] !== targetOppVal) {
           socket.emit('notification', { type: 'error', message: '选定的棋子类型不正确' });
+          p.cards.push('SWAP'); // Restore card
           room.history.pop();
           return;
         }
@@ -506,7 +526,6 @@ io.on('connection', (socket) => {
         room.board[myR][myC] = targetOppVal;
         room.board[oppR][oppC] = myVal;
 
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🔄 ${p.name} 使用了【斗转星移】，互换了自己位于 (${myR}, ${myC}) 和对方位于 (${oppR}, ${oppC}) 的棋子！`;
         break;
@@ -515,17 +534,18 @@ io.on('connection', (socket) => {
         const { barrierR, barrierC } = params || {};
         if (barrierR === undefined || barrierC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择放置障碍物的位置' });
+          p.cards.push('BARRIER'); // Restore card
           room.history.pop();
           return;
         }
         if (room.board[barrierR][barrierC] !== 0) {
           socket.emit('notification', { type: 'error', message: '这里已经有棋子，无法放置障碍物' });
+          p.cards.push('BARRIER'); // Restore card
           room.history.pop();
           return;
         }
 
         room.board[barrierR][barrierC] = 3; // 3 represents obstacle
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🧱 ${p.name} 使用了【画地为牢】，在 (${barrierR}, ${barrierC}) 放置了一个永久障碍物！`;
         break;
@@ -534,6 +554,7 @@ io.on('connection', (socket) => {
         const { fogR, fogC } = params || {};
         if (fogR === undefined || fogC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择迷雾的中心位置' });
+          p.cards.push('FOG'); // Restore card
           room.history.pop();
           return;
         }
@@ -543,7 +564,6 @@ io.on('connection', (socket) => {
           c: fogC,
           expiresTurn: room.turnCount + 4 // expires after 2 of opponent's turns (4 turns total in switch count)
         };
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🌫️ ${p.name} 使用了【大雾弥漫】，在以 (${fogR}, ${fogC}) 为中心的 5x5 区域升起了迷雾，阻挡对方视野！`;
         break;
@@ -551,7 +571,6 @@ io.on('connection', (socket) => {
       case 'DOUBLE': // 贴贴 (Double drop)
         room.doubleDropState.active = true;
         room.doubleDropState.firstStone = null;
-        p.energy -= skill.cost;
         success = true;
         logMsg = `💕 ${p.name} 使用了【贴贴】，这回合可以连续落两枚相邻的棋子！`;
         // Do not switch turn - we want them to place 2 stones now.
@@ -561,17 +580,20 @@ io.on('connection', (socket) => {
         const { cloneSourceR, cloneSourceC, cloneDestR, cloneDestC } = params || {};
         if (cloneSourceR === undefined || cloneSourceC === undefined || cloneDestR === undefined || cloneDestC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择复制源和目标位置' });
+          p.cards.push('CLONE'); // Restore card
           room.history.pop();
           return;
         }
         const myVal = role === 'p1' ? 1 : 2;
         if (room.board[cloneSourceR][cloneSourceC] !== myVal) {
           socket.emit('notification', { type: 'error', message: '只能复制你自己的棋子' });
+          p.cards.push('CLONE'); // Restore card
           room.history.pop();
           return;
         }
         if (room.board[cloneDestR][cloneDestC] !== 0) {
           socket.emit('notification', { type: 'error', message: '复制目标位置必须是空格' });
+          p.cards.push('CLONE'); // Restore card
           room.history.pop();
           return;
         }
@@ -579,21 +601,28 @@ io.on('connection', (socket) => {
         const diffC = Math.abs(cloneSourceC - cloneDestC);
         if (diffR > 1 || diffC > 1 || (diffR === 0 && diffC === 0)) {
           socket.emit('notification', { type: 'error', message: '复制目标位置必须与源棋子相邻！' });
+          p.cards.push('CLONE'); // Restore card
           room.history.pop();
           return;
         }
 
         room.board[cloneDestR][cloneDestC] = myVal;
-        p.energy -= skill.cost;
         success = true;
         logMsg = `🔮 ${p.name} 使用了【无中生有】，将 (${cloneSourceR}, ${cloneSourceC}) 的棋子复制到了其相邻的 (${cloneDestR}, ${cloneDestC}) 处！`;
         break;
       }
 
-      case 'MEDITATE': { // 冥想 (Meditate for energy)
-        p.energy = Math.min(100, p.energy + 25);
+      case 'MEDITATE': { // 冥想 (Meditate to draw 2 cards)
+        const skillKeys = Object.keys(SKILLS);
+        let drawnCount = 0;
+        for (let i = 0; i < 2; i++) {
+          if (p.cards.length < 5) {
+            p.cards.push(skillKeys[Math.floor(Math.random() * skillKeys.length)]);
+            drawnCount++;
+          }
+        }
         success = true;
-        logMsg = `🧘 ${p.name} 使用了【冥想】，放弃了本轮落子，并瞬间凝聚了 25 点 EP 能量！`;
+        logMsg = `🧘 ${p.name} 使用了【冥想】卡，放弃了本轮落子，并额外摸了 ${drawnCount} 张技能卡！`;
         break;
       }
 
@@ -601,6 +630,7 @@ io.on('connection', (socket) => {
         const { clearR, clearC } = params || {};
         if (clearR === undefined || clearC === undefined) {
           socket.emit('notification', { type: 'error', message: '必须选择清除区域的中心' });
+          p.cards.push('CLEAR_AREA'); // Restore card
           room.history.pop();
           return;
         }
@@ -619,11 +649,11 @@ io.on('connection', (socket) => {
 
         if (clearedCount === 0) {
           socket.emit('notification', { type: 'error', message: '选定区域内没有任何棋子或障碍物，无需清除' });
+          p.cards.push('CLEAR_AREA'); // Restore card
           room.history.pop();
           return;
         }
 
-        p.energy -= skill.cost;
         success = true;
         logMsg = `💨 ${p.name} 使用了【风卷残云】，清空了以 (${clearR}, ${clearC}) 为中心的 3x3 区域内的所有棋子与障碍！`;
         break;
@@ -660,6 +690,45 @@ io.on('connection', (socket) => {
         sendRoomState(roomId);
       }
     }
+  });
+
+  // Draw Card action
+  socket.on('drawCard', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room || room.gameState !== 'playing') return;
+
+    const role = socket.role;
+    if (role !== room.currentTurn) {
+      socket.emit('notification', { type: 'error', message: '只能在你的回合摸牌' });
+      return;
+    }
+
+    const p = room.players[role];
+    if (!p) return;
+
+    if (!p.cards) {
+      p.cards = [];
+    }
+
+    if (p.cards.length >= 5) {
+      socket.emit('notification', { type: 'error', message: '手牌已满（上限 5 张），请先出牌或落子！' });
+      return;
+    }
+
+    // Draw a random card
+    const skillKeys = Object.keys(SKILLS);
+    const randomSkill = skillKeys[Math.floor(Math.random() * skillKeys.length)];
+    p.cards.push(randomSkill);
+
+    io.to(roomId).emit('chatMessage', {
+      name: '系统',
+      text: `🃏 ${p.name} 选择摸了一张牌。`,
+      time: new Date().toLocaleTimeString()
+    });
+
+    saveHistory(room);
+    switchTurn(room);
   });
 
   // End Turn manually (useful if stuck or for double drop cancellation)
@@ -756,12 +825,6 @@ function switchTurn(room) {
       text: `🌫️ 笼罩在 ${room.players[room.currentTurn].name} 视线上的迷雾消散了。`,
       time: new Date().toLocaleTimeString()
     });
-  }
-
-  // Grant energy on turn start (e.g. +10 energy per turn, capped at 100)
-  const activePlayer = room.players[room.currentTurn];
-  if (activePlayer) {
-    activePlayer.energy = Math.min(100, activePlayer.energy + 10);
   }
 
   sendRoomState(room.roomId);

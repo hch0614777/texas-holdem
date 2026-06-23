@@ -111,6 +111,25 @@ class SoundSynth {
     playNote(659.25, 1.08, 0.3); // E5
     playNote(783.99, 1.38, 0.6); // G5
   }
+
+  playCardDrawSound() {
+    this.init();
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(200, this.ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, this.ctx.currentTime + 0.15);
+    
+    gain.gain.setValueAtTime(0.15, this.ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+    
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    osc.start();
+    osc.stop(this.ctx.currentTime + 0.2);
+  }
 }
 
 const synth = new SoundSynth();
@@ -125,6 +144,7 @@ let silenced = { p1: false, p2: false };
 let targetingMode = null; // null or 'SCATTER', 'CONVERT', 'BARRIER', 'FOG', 'SWAP_MY', 'SWAP_OPP', 'CLONE', 'CLONE_DEST', 'CLEAR_AREA'
 let swapSelection = { my: null, opp: null }; // { r, c } for swap skill
 let cloneSelection = { source: null, dest: null }; // { r, c } for clone skill
+let myHandCards = []; // Hand cards received from server
 
 // DOM Elements
 const loginScreen = document.getElementById('login-screen');
@@ -150,6 +170,8 @@ const p2EnergyText = document.getElementById('p2-energy-text');
 
 const board = document.getElementById('board');
 const skillTip = document.getElementById('skill-tip');
+const skillsGrid = document.getElementById('skills-grid');
+const drawCardBtn = document.getElementById('draw-card-btn');
 const cancelActionBtn = document.getElementById('cancel-action-btn');
 const skipBtn = document.getElementById('skip-btn');
 
@@ -297,22 +319,24 @@ socket.on('roomState', (room) => {
   // Update player panels
   if (room.players.p1) {
     p1Name.textContent = room.players.p1.name;
-    p1EnergyBar.style.width = `${room.players.p1.energy}%`;
-    p1EnergyText.textContent = `${room.players.p1.energy} / 100 EP`;
+    const count = room.players.p1.cardCount || 0;
+    p1EnergyBar.style.width = `${(count / 5) * 100}%`;
+    p1EnergyText.textContent = `手牌: ${count} / 5 张`;
   } else {
     p1Name.textContent = '等待加入...';
     p1EnergyBar.style.width = '0%';
-    p1EnergyText.textContent = '0 / 100 EP';
+    p1EnergyText.textContent = '手牌: 0 / 5 张';
   }
 
   if (room.players.p2) {
     p2Name.textContent = room.players.p2.name;
-    p2EnergyBar.style.width = `${room.players.p2.energy}%`;
-    p2EnergyText.textContent = `${room.players.p2.energy} / 100 EP`;
+    const count = room.players.p2.cardCount || 0;
+    p2EnergyBar.style.width = `${(count / 5) * 100}%`;
+    p2EnergyText.textContent = `手牌: ${count} / 5 张`;
   } else {
     p2Name.textContent = '等待加入...';
     p2EnergyBar.style.width = '0%';
-    p2EnergyText.textContent = '0 / 100 EP';
+    p2EnergyText.textContent = '手牌: 0 / 5 张';
   }
 
   // Active status highlight
@@ -322,8 +346,8 @@ socket.on('roomState', (room) => {
   // Update Board Grid Cells
   updateBoardCells(room);
 
-  // Update Skill Cards disabled states
-  updateSkillBar(room);
+  // Render and update player hand cards
+  renderHandCards(room);
 });
 
 // Helper to update grid board cells (stones, fog, preview hover classes)
@@ -405,29 +429,132 @@ function updateBoardCells(room) {
   });
 }
 
-// Update skill cards UI disabled state based on player energy, turn, and silence status
-function updateSkillBar(room) {
+// Render dynamic hand cards based on private state
+function renderHandCards(room) {
+  if (!skillsGrid) return;
+  skillsGrid.innerHTML = '';
+
   const p = room.players[myRole];
-  const skillCards = document.querySelectorAll('.skill-card');
+  const activeTurn = room.currentTurn;
+  const isMyTurn = activeTurn === myRole;
+  const isSilenced = room.silenced[myRole];
 
-  skillCards.forEach(card => {
-    const cost = parseInt(card.querySelector('.skill-cost').textContent);
-    const skillId = card.dataset.skill;
+  if (myRole !== 'p1' && myRole !== 'p2') {
+    skillsGrid.innerHTML = '<div class="spectator-msg" style="color: var(--text-muted); text-align: center; width: 100%; padding: 20px;">旁观中没有手牌</div>';
+    return;
+  }
 
-    // Disabled cases:
-    // 1. Not a player (spectator)
-    // 2. Game is not playing
-    // 3. Not our turn
-    // 4. Insufficient energy
-    // 5. Silenced
+  if (!myHandCards || myHandCards.length === 0) {
+    skillsGrid.innerHTML = '<div class="no-cards-msg" style="color: var(--text-muted); text-align: center; width: 100%; padding: 20px;">暂无卡牌，请点击“摸一张牌”</div>';
+    return;
+  }
+
+  myHandCards.forEach(skillId => {
+    const desc = SKILL_DESCRIPTIONS[skillId];
+    if (!desc) return;
+
+    const card = document.createElement('div');
+    card.classList.add('skill-card');
+    card.dataset.skill = skillId;
+
+    let icon = '🔮';
+    if (skillId === 'COQUETRY') icon = '💖';
+    else if (skillId === 'SCATTER') icon = '🌪️';
+    else if (skillId === 'SILENCE') icon = '🤫';
+    else if (skillId === 'CONVERT') icon = '💘';
+    else if (skillId === 'SWAP') icon = '🔄';
+    else if (skillId === 'BARRIER') icon = '🧱';
+    else if (skillId === 'FOG') icon = '🌫️';
+    else if (skillId === 'DOUBLE') icon = '💕';
+    else if (skillId === 'CLONE') icon = '🔮';
+    else if (skillId === 'MEDITATE') icon = '🧘';
+    else if (skillId === 'CLEAR_AREA') icon = '💨';
+
+    card.innerHTML = `
+      <div class="skill-icon">${icon}</div>
+      <div class="skill-info">
+        <span class="skill-name">${desc.name.split(' ')[1] || desc.name}</span>
+        <span class="skill-cost">卡牌</span>
+      </div>
+    `;
+
+    // Disable conditions:
     const isDisabled = 
-      !p || 
       room.gameState !== 'playing' || 
-      room.currentTurn !== myRole || 
-      p.energy < cost || 
-      room.silenced[myRole];
+      !isMyTurn || 
+      isSilenced;
 
-    card.classList.toggle('disabled', isDisabled);
+    if (isDisabled) {
+      card.classList.add('disabled');
+    }
+
+    // Attach same press/click handlers
+    let pressTimer = null;
+    let isLongPress = false;
+    let startX = 0;
+    let startY = 0;
+
+    const startPress = (e) => {
+      isLongPress = false;
+      const touch = e.touches ? e.touches[0] : e;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      
+      pressTimer = setTimeout(() => {
+        isLongPress = true;
+        showSkillTooltip(skillId);
+      }, 450);
+    };
+
+    const endPress = (e) => {
+      clearTimeout(pressTimer);
+      if (isLongPress) {
+        e.preventDefault();
+        e.stopPropagation();
+        hideSkillTooltip();
+      }
+    };
+
+    const movePress = (e) => {
+      const touch = e.touches ? e.touches[0] : e;
+      if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
+        clearTimeout(pressTimer);
+        if (isLongPress) {
+          hideSkillTooltip();
+          isLongPress = false;
+        }
+      }
+    };
+
+    card.addEventListener('touchstart', startPress, { passive: false });
+    card.addEventListener('touchend', endPress, { passive: false });
+    card.addEventListener('touchmove', movePress, { passive: true });
+    card.addEventListener('mousedown', startPress);
+    card.addEventListener('mouseup', endPress);
+    card.addEventListener('mousemove', movePress);
+
+    card.addEventListener('click', (e) => {
+      if (isLongPress) {
+        e.preventDefault();
+        e.stopPropagation();
+        isLongPress = false;
+        return;
+      }
+      
+      if (card.classList.contains('disabled')) return;
+      
+      synth.init();
+      resetTargetingMode();
+
+      if (skillId === 'COQUETRY' || skillId === 'DOUBLE' || skillId === 'SILENCE' || skillId === 'MEDITATE') {
+        socket.emit('useSkill', { skillId });
+        synth.playSkillSound();
+      } else {
+        enterTargetingMode(skillId);
+      }
+    });
+
+    skillsGrid.appendChild(card);
   });
 }
 
@@ -572,57 +699,57 @@ window.addEventListener('mouseup', () => {
 const SKILL_DESCRIPTIONS = {
   COQUETRY: {
     name: "💖 撒娇 (悔棋)",
-    cost: "消耗 30 EP",
-    desc: "撒娇卖萌！强制撤销对手上一步在棋盘上落下的棋子（不能连续使用）。"
+    cost: "一次性卡牌",
+    desc: "撒娇卖萌！强制撤销对手上一步在棋盘上落下的棋子（直接生效，不结束回合）。"
   },
   SCATTER: {
     name: "🌪️ 飞沙走石",
-    cost: "消耗 40 EP",
+    cost: "一次性卡牌",
     desc: "选择一个 3x3 区域，将该区域内的所有棋子随机吹移到周围的空格中。"
   },
   SILENCE: {
     name: "🤫 静如止水",
-    cost: "消耗 35 EP",
-    desc: "使对手进入封印状态，在下个回合无法使用任何技能，只能普通落子。"
+    cost: "一次性卡牌",
+    desc: "使对手进入封印状态，在下个回合无法使用任何卡牌，只能普通落子或摸牌。"
   },
   CONVERT: {
     name: "💘 偷心贼",
-    cost: "消耗 60 EP",
+    cost: "一次性卡牌",
     desc: "选择对方的一枚棋子，直接将其转化为你的棋子颜色。"
   },
   SWAP: {
     name: "🔄 斗转星移",
-    cost: "消耗 45 EP",
+    cost: "一次性卡牌",
     desc: "依次选择自己的一颗棋子和对方的一颗棋子，强行互换它们的位置。"
   },
   BARRIER: {
     name: "🧱 画地为牢",
-    cost: "消耗 25 EP",
+    cost: "一次性卡牌",
     desc: "在棋盘空格处放置一堵永久障碍墙。阻挡双方在此连子。"
   },
   FOG: {
     name: "🌫️ 大雾弥漫",
-    cost: "消耗 30 EP",
+    cost: "一次性卡牌",
     desc: "在对方棋盘的指定中心降下 5x5 的浓雾遮挡视线，持续 2 回合（你依然能看清）。"
   },
   DOUBLE: {
     name: "💕 贴贴双弹",
-    cost: "消耗 50 EP",
+    cost: "一次性卡牌",
     desc: "在本回合内你可以连续下两颗棋子，但这二者必须相邻。"
   },
   CLONE: {
     name: "🔮 无中生有 (复制)",
-    cost: "消耗 45 EP",
+    cost: "一次性卡牌",
     desc: "选择自己的一颗棋子，将其原样复制到相邻的某个空格上。"
   },
   MEDITATE: {
-    name: "🧘 冥想 (充能)",
-    cost: "消耗 0 EP",
-    desc: "放弃本回合的落子权进行打坐，直接回复 25 点 EP 能量值。"
+    name: "🧘 冥想 (摸牌)",
+    cost: "一次性卡牌",
+    desc: "使用该卡跳过本回合落子阶段，并额外随机摸 2 张技能牌。"
   },
   CLEAR_AREA: {
     name: "💨 风卷残云",
-    cost: "消耗 50 EP",
+    cost: "一次性卡牌",
     desc: "清空选定的 3x3 区域，移除该区域内的所有棋子和障碍物。"
   }
 };
@@ -666,85 +793,7 @@ function hideSkillTooltip() {
   tooltipEl.classList.add('hidden');
 }
 
-// Set up skill cards click and long-press listeners
-document.querySelectorAll('.skill-card').forEach(card => {
-  const skillId = card.dataset.skill;
-  let pressTimer = null;
-  let isLongPress = false;
-  let startX = 0;
-  let startY = 0;
-
-  const startPress = (e) => {
-    isLongPress = false;
-    const touch = e.touches ? e.touches[0] : e;
-    startX = touch.clientX;
-    startY = touch.clientY;
-    
-    pressTimer = setTimeout(() => {
-      isLongPress = true;
-      showSkillTooltip(skillId);
-    }, 450); // 450ms for long press
-  };
-
-  const endPress = (e) => {
-    clearTimeout(pressTimer);
-    if (isLongPress) {
-      e.preventDefault();
-      e.stopPropagation();
-      hideSkillTooltip();
-    }
-    // We do NOT reset isLongPress here immediately, so the click listener can block the click
-  };
-
-  const movePress = (e) => {
-    const touch = e.touches ? e.touches[0] : e;
-    if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
-      clearTimeout(pressTimer);
-      if (isLongPress) {
-        hideSkillTooltip();
-        isLongPress = false;
-      }
-    }
-  };
-
-  // Touch handlers
-  card.addEventListener('touchstart', startPress, { passive: false });
-  card.addEventListener('touchend', endPress, { passive: false });
-  card.addEventListener('touchmove', movePress, { passive: true });
-
-  // Mouse handlers
-  card.addEventListener('mousedown', startPress);
-  card.addEventListener('mouseup', endPress);
-  card.addEventListener('mousemove', movePress);
-
-  // Click handler
-  card.addEventListener('click', (e) => {
-    if (isLongPress) {
-      // It was a long press, block the action and reset state
-      e.preventDefault();
-      e.stopPropagation();
-      isLongPress = false;
-      return;
-    }
-    
-    if (card.classList.contains('disabled')) return;
-    
-    // Play button tap
-    synth.init();
-
-    // Reset any existing targeting mode
-    resetTargetingMode();
-
-    // Skills that execute immediately
-    if (skillId === 'COQUETRY' || skillId === 'DOUBLE' || skillId === 'SILENCE' || skillId === 'MEDITATE') {
-      socket.emit('useSkill', { skillId });
-      synth.playSkillSound();
-    } else {
-      // Requires target coordinates
-      enterTargetingMode(skillId);
-    }
-  });
-});
+// Listeners are now bound dynamically in renderHandCards
 
 
 // Targeting logic helper
@@ -1004,11 +1053,11 @@ function showWinOverlay(room) {
   winTitle.textContent = `🏆 ${winnerName} 赢得了本次对局！`;
   
   if (myRole === room.winner) {
-    winDesc.textContent = '太棒了！你的智慧与技能搭配无人能挡！快去和对方炫耀一下吧 💖';
+    winDesc.textContent = '太棒了！你的智慧与卡牌技能搭配无人能挡！快去和对方炫耀一下吧 💖';
   } else if (myRole === 'spectator') {
     winDesc.textContent = `对局已分出胜负，${winnerName} 获得了最终胜利！`;
   } else {
-    winDesc.textContent = '哎呀，惜败！不要气馁，下局调配好你的 EP 能量槽报仇雪恨吧！💐';
+    winDesc.textContent = '哎呀，惜败！不要气馁，下局抽好卡牌报仇雪恨吧！💐';
   }
 }
 
@@ -1017,6 +1066,20 @@ rematchBtn.addEventListener('click', () => {
   winOverlay.classList.add('hidden');
   socket.emit('startGame');
 });
+
+// Hand cards event handler
+socket.on('handCards', ({ cards }) => {
+  myHandCards = cards;
+  socket.emit('requestStateRefresh');
+  synth.playCardDrawSound();
+});
+
+// Draw card button event handler
+if (drawCardBtn) {
+  drawCardBtn.addEventListener('click', () => {
+    socket.emit('drawCard');
+  });
+}
 
 // Helper utilities
 function getRoleName(role) {

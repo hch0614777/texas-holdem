@@ -93,88 +93,13 @@
         </div>
         <!-- Skills Section -->
         <div class="skills-section glass-panel">
-          <h3>🔮 技能仓库</h3>
+          <h3>🔮 我的手牌</h3>
 
-          <div class="skills-grid">
-            <div class="skill-card" data-skill="COQUETRY">
-              <div class="skill-icon">💖</div>
-              <div class="skill-info">
-                <span class="skill-name">撒娇 (悔棋)</span>
-                <span class="skill-cost">30 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="SCATTER">
-              <div class="skill-icon">🌪️</div>
-              <div class="skill-info">
-                <span class="skill-name">飞沙走石</span>
-                <span class="skill-cost">40 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="SILENCE">
-              <div class="skill-icon">🤫</div>
-              <div class="skill-info">
-                <span class="skill-name">静如止水</span>
-                <span class="skill-cost">35 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="CONVERT">
-              <div class="skill-icon">💘</div>
-              <div class="skill-info">
-                <span class="skill-name">偷心贼</span>
-                <span class="skill-cost">60 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="SWAP">
-              <div class="skill-icon">🔄</div>
-              <div class="skill-info">
-                <span class="skill-name">斗转星移</span>
-                <span class="skill-cost">45 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="BARRIER">
-              <div class="skill-icon">🧱</div>
-              <div class="skill-info">
-                <span class="skill-name">画地为牢</span>
-                <span class="skill-cost">25 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="FOG">
-              <div class="skill-icon">🌫️</div>
-              <div class="skill-info">
-                <span class="skill-name">大雾弥漫</span>
-                <span class="skill-cost">30 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="DOUBLE">
-              <div class="skill-icon">💕</div>
-              <div class="skill-info">
-                <span class="skill-name">贴贴双弹</span>
-                <span class="skill-cost">50 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="CLONE">
-              <div class="skill-icon">🔮</div>
-              <div class="skill-info">
-                <span class="skill-name">无中生有 (复制)</span>
-                <span class="skill-cost">45 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="MEDITATE">
-              <div class="skill-icon">🧘</div>
-              <div class="skill-info">
-                <span class="skill-name">冥想 (充能)</span>
-                <span class="skill-cost">0 EP</span>
-              </div>
-            </div>
-            <div class="skill-card" data-skill="CLEAR_AREA">
-              <div class="skill-icon">💨</div>
-              <div class="skill-info">
-                <span class="skill-name">风卷残云 (清除)</span>
-                <span class="skill-cost">50 EP</span>
-              </div>
-            </div>
+          <div class="skills-grid" id="skills-grid">
+            <!-- Dynamically populated by game.js based on hand cards -->
           </div>
           <div class="action-row">
+            <button id="draw-card-btn" class="glow-btn-orange">🃏 摸一张牌</button>
             <button id="cancel-action-btn" class="cancel-btn hidden">取消技能选择</button>
             <button id="skip-btn" class="skip-btn">跳过回合</button>
           </div>
@@ -204,25 +129,27 @@
         <p>1. 棋盘为 15x15 五子棋。率先在横、竖、斜任意方向连成五子的一方获胜。</p>
         <p>2. <b>特色机制：</b>你可以通过技能移动、转换、复制或交换棋子，如果触发了连五，也能直接触发胜利！</p>
         
-        <h3>能量（EP）机制</h3>
-        <p>1. 施放技能需要消耗能量值（EP）。能量上限为 100 EP。</p>
-        <p>2. 执黑（P1）先手，初始 30 EP；执白（P2）后手，初始 35 EP。</p>
-        <p>3. 每次轮到你的回合开始时，会自动回复 10 EP。</p>
-        <p>4. 你可以随时点击“跳过回合”或施放“冥想”来快速积攒能量。</p>
-        
-        <h3>🔮 技能列表说明</h3>
+        <h3>🃏 卡牌机制</h3>
+        <p>1. <b>手牌上限：</b>每位玩家最多可同时持有 5 张手牌。</p>
+        <p>2. <b>初始发牌：</b>开局时每人随机分发 3 张技能卡牌。</p>
+        <p>3. <b>回合选择：</b>在你的回合，你可以选择执行以下三种操作之一：</p>
+        <p style="padding-left: 15px;">A. <b>普通落子：</b>在棋盘上下一子，回合结束。</p>
+        <p style="padding-left: 15px;">B. <b>摸一张牌：</b>点击“摸一张牌”按钮，手牌+1（未满5张时），回合结束。</p>
+        <p style="padding-left: 15px;">C. <b>施放技能卡：</b>使用你手牌中的任意一张技能卡，消耗该卡，回合结束（部分特殊卡牌如“撒娇”或“贴贴”不立刻结束回合）。</p>
+
+        <h3>🔮 技能卡牌说明</h3>
         <ul class="rules-skills-list">
-          <li><strong>💖 撒娇 (悔棋) [30 EP]:</strong> 撤销对手最后落下的子。</li>
-          <li><strong>🌪️ 飞沙走石 [40 EP]:</strong> 选择一个3x3区域，将其中的棋子随机吹移至周围空格。</li>
-          <li><strong>🤫 静如止水 [35 EP]:</strong> 封印对手，使其在下个回合不能施放任何技能。</li>
-          <li><strong>💘 偷心贼 [60 EP]:</strong> 选择对方的一枚棋子，使其直接变成你的颜色。</li>
-          <li><strong>🔄 斗转星移 [45 EP]:</strong> 选择你的一枚棋子和对方的一枚棋子，强行互换位置。</li>
-          <li><strong>🧱 画地为牢 [25 EP]:</strong> 在空格处放置一堵墙（永久障碍物），阻挡双方连子。</li>
-          <li><strong>🌫️ 大雾弥漫 [30 EP]:</strong> 选择中心点，在对方屏幕上盖起 5x5 的迷雾阻挡视野，持续2个回合。</li>
-          <li><strong>💕 贴贴双弹 [50 EP]:</strong> 让你在一回合内可以连续落两颗子，但两子必须相邻。</li>
-          <li><strong>🔮 无中生有 (复制) [45 EP]:</strong> 选择你的一枚棋子，将其复制到旁边相邻的空格处。</li>
-          <li><strong>🧘 冥想 (充能) [0 EP]:</strong> 放弃本回合的落子权，直接获得 25 点 EP。</li>
-          <li><strong>💨 风卷残云 [50 EP]:</strong> 选择一个3x3区域，清空区域内所有的棋子和障碍物。</li>
+          <li><strong>💖 撒娇 (悔棋) [卡牌]:</strong> 撤销对手最后落下的子。</li>
+          <li><strong>🌪️ 飞沙走石 [卡牌]:</strong> 选择一个3x3区域，将其中的棋子随机吹移至周围空格。</li>
+          <li><strong>🤫 静如止水 [卡牌]:</strong> 封印对手，使其在下个回合不能施放任何卡牌。</li>
+          <li><strong>💘 偷心贼 [卡牌]:</strong> 选择对方的一枚棋子，使其直接变成你的颜色。</li>
+          <li><strong>🔄 斗转星移 [卡牌]:</strong> 选择你的一枚棋子和对方的一枚棋子，强行互换位置。</li>
+          <li><strong>🧱 画地为牢 [卡牌]:</strong> 在空格处放置一堵墙（永久障碍物），阻挡双方连子。</li>
+          <li><strong>🌫️ 大雾弥漫 [卡牌]:</strong> 选择中心点，在对方屏幕上盖起 5x5 的迷雾阻挡视野，持续2个回合。</li>
+          <li><strong>💕 贴贴双弹 [卡牌]:</strong> 让你在一回合内可以连续落两颗子，但两子必须相邻。</li>
+          <li><strong>🔮 无中生有 (复制) [卡牌]:</strong> 选择你的一枚棋子，将其复制到旁边相邻的空格处。</li>
+          <li><strong>🧘 冥想 (摸牌) [卡牌]:</strong> 放弃本回合落子，额外随机摸 2 张技能牌（手牌上限 5 张）。</li>
+          <li><strong>💨 风卷残云 [卡牌]:</strong> 选择一个3x3区域，清空区域内所有的棋子和障碍物。</li>
         </ul>
       </div>
       <button id="close-rules-btn" class="glow-btn">我知道了</button>

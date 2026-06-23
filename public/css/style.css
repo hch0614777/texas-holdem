@@ -150,6 +150,34 @@ body {
   transform: translateY(1px);
 }
 
+.glow-btn-orange {
+  flex: 1;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, #ff9f43, #ff5252);
+  border: none;
+  border-radius: 12px;
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 4px 15px rgba(255, 82, 82, 0.3);
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.glow-btn-orange:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 18px rgba(255, 82, 82, 0.5);
+}
+
+.glow-btn-orange:active {
+  transform: translateY(1px);
+}
+
 /* Main Game Layout */
 #game-screen {
   width: 100vw;
