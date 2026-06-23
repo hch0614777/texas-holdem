@@ -1,0 +1,14 @@
+{
+  "name": "skill-gobang",
+  "version": "1.0.0",
+  "description": "技能五子棋 - 情侣乱斗版",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "share": "npx localtunnel --port 4000"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  }
+}
