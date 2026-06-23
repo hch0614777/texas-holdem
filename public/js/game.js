@@ -416,11 +416,166 @@ function handleCellClick(r, c) {
   }
 }
 
-// Set up skill cards click listeners
+// Skill descriptions mapping for long-press tooltips
+const SKILL_DESCRIPTIONS = {
+  COQUETRY: {
+    name: "💖 撒娇 (悔棋)",
+    cost: "消耗 30 EP",
+    desc: "撒娇卖萌！强制撤销对手上一步在棋盘上落下的棋子（不能连续使用）。"
+  },
+  SCATTER: {
+    name: "🌪️ 飞沙走石",
+    cost: "消耗 40 EP",
+    desc: "选择一个 3x3 区域，将该区域内的所有棋子随机吹移到周围的空格中。"
+  },
+  SILENCE: {
+    name: "🤫 静如止水",
+    cost: "消耗 35 EP",
+    desc: "使对手进入封印状态，在下个回合无法使用任何技能，只能普通落子。"
+  },
+  CONVERT: {
+    name: "💘 偷心贼",
+    cost: "消耗 60 EP",
+    desc: "选择对方的一枚棋子，直接将其转化为你的棋子颜色。"
+  },
+  SWAP: {
+    name: "🔄 斗转星移",
+    cost: "消耗 45 EP",
+    desc: "依次选择自己的一颗棋子和对方的一颗棋子，强行互换它们的位置。"
+  },
+  BARRIER: {
+    name: "🧱 画地为牢",
+    cost: "消耗 25 EP",
+    desc: "在棋盘空格处放置一堵永久障碍墙。阻挡双方在此连子。"
+  },
+  FOG: {
+    name: "🌫️ 大雾弥漫",
+    cost: "消耗 30 EP",
+    desc: "在对方棋盘的指定中心降下 5x5 的浓雾遮挡视线，持续 2 回合（你依然能看清）。"
+  },
+  DOUBLE: {
+    name: "💕 贴贴双弹",
+    cost: "消耗 50 EP",
+    desc: "在本回合内你可以连续下两颗棋子，但这二者必须相邻。"
+  },
+  CLONE: {
+    name: "🔮 无中生有 (复制)",
+    cost: "消耗 45 EP",
+    desc: "选择自己的一颗棋子，将其原样复制到相邻的某个空格上。"
+  },
+  MEDITATE: {
+    name: "🧘 冥想 (充能)",
+    cost: "消耗 0 EP",
+    desc: "放弃本回合的落子权进行打坐，直接回复 25 点 EP 能量值。"
+  },
+  CLEAR_AREA: {
+    name: "💨 风卷残云",
+    cost: "消耗 50 EP",
+    desc: "清空选定的 3x3 区域，移除该区域内的所有棋子和障碍物。"
+  }
+};
+
+// Create floating tooltip element dynamically
+let tooltipEl = document.getElementById('skill-detail-tooltip');
+if (!tooltipEl) {
+  tooltipEl = document.createElement('div');
+  tooltipEl.id = 'skill-detail-tooltip';
+  tooltipEl.className = 'skill-detail-tooltip hidden';
+  tooltipEl.innerHTML = `
+    <div class="tooltip-content">
+      <div class="tooltip-header">
+        <span class="tooltip-name"></span>
+        <span class="tooltip-cost"></span>
+      </div>
+      <p class="tooltip-desc"></p>
+      <div class="tooltip-footer">👋 松手以关闭介绍</div>
+    </div>
+  `;
+  document.body.appendChild(tooltipEl);
+}
+
+function showSkillTooltip(skillId) {
+  const skill = SKILL_DESCRIPTIONS[skillId];
+  if (!skill) return;
+
+  tooltipEl.querySelector('.tooltip-name').textContent = skill.name;
+  tooltipEl.querySelector('.tooltip-cost').textContent = skill.cost;
+  tooltipEl.querySelector('.tooltip-desc').textContent = skill.desc;
+  
+  tooltipEl.classList.remove('hidden');
+  
+  // Vibration feedback for mobile if supported
+  if (navigator.vibrate) {
+    navigator.vibrate(50);
+  }
+}
+
+function hideSkillTooltip() {
+  tooltipEl.classList.add('hidden');
+}
+
+// Set up skill cards click and long-press listeners
 document.querySelectorAll('.skill-card').forEach(card => {
-  card.addEventListener('click', () => {
+  const skillId = card.dataset.skill;
+  let pressTimer = null;
+  let isLongPress = false;
+  let startX = 0;
+  let startY = 0;
+
+  const startPress = (e) => {
+    isLongPress = false;
+    const touch = e.touches ? e.touches[0] : e;
+    startX = touch.clientX;
+    startY = touch.clientY;
+    
+    pressTimer = setTimeout(() => {
+      isLongPress = true;
+      showSkillTooltip(skillId);
+    }, 450); // 450ms for long press
+  };
+
+  const endPress = (e) => {
+    clearTimeout(pressTimer);
+    if (isLongPress) {
+      e.preventDefault();
+      e.stopPropagation();
+      hideSkillTooltip();
+    }
+    // We do NOT reset isLongPress here immediately, so the click listener can block the click
+  };
+
+  const movePress = (e) => {
+    const touch = e.touches ? e.touches[0] : e;
+    if (Math.abs(touch.clientX - startX) > 10 || Math.abs(touch.clientY - startY) > 10) {
+      clearTimeout(pressTimer);
+      if (isLongPress) {
+        hideSkillTooltip();
+        isLongPress = false;
+      }
+    }
+  };
+
+  // Touch handlers
+  card.addEventListener('touchstart', startPress, { passive: false });
+  card.addEventListener('touchend', endPress, { passive: false });
+  card.addEventListener('touchmove', movePress, { passive: true });
+
+  // Mouse handlers
+  card.addEventListener('mousedown', startPress);
+  card.addEventListener('mouseup', endPress);
+  card.addEventListener('mousemove', movePress);
+
+  // Click handler
+  card.addEventListener('click', (e) => {
+    if (isLongPress) {
+      // It was a long press, block the action and reset state
+      e.preventDefault();
+      e.stopPropagation();
+      isLongPress = false;
+      return;
+    }
+    
     if (card.classList.contains('disabled')) return;
-    const skillId = card.dataset.skill;
     
     // Play button tap
     synth.init();
@@ -438,6 +593,7 @@ document.querySelectorAll('.skill-card').forEach(card => {
     }
   });
 });
+
 
 // Targeting logic helper
 function enterTargetingMode(skillId) {

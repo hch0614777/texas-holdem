@@ -1310,3 +1310,70 @@ body {
   }
 }
 
+/* Skill Detail Tooltip Overlay */
+.skill-detail-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease-out;
+  pointer-events: none; /* Let events pass through so touchend works properly */
+}
+
+.skill-detail-tooltip .tooltip-content {
+  width: 85%;
+  max-width: 320px;
+  background: rgba(15, 18, 36, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(0, 210, 255, 0.2);
+  padding: 20px;
+  border-radius: 16px;
+  text-align: center;
+  animation: scaleUp 0.15s cubic-bezier(0.175, 0.885, 0.32, 1.1);
+  pointer-events: auto; /* Allow interaction with the tooltip content itself if needed */
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  padding-bottom: 8px;
+}
+
+.tooltip-name {
+  font-size: 1.1rem;
+  font-weight: 800;
+  color: #fff;
+}
+
+.tooltip-cost {
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #ffcc00;
+}
+
+.tooltip-desc {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 15px;
+  text-align: left;
+}
+
+.tooltip-footer {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
+
