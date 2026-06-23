@@ -27,8 +27,12 @@ const SKILLS = {
   SWAP: { id: 'SWAP', name: '斗转星移 (置换)', cost: 45, desc: '选择己方和对方的一枚棋子交换位置' },
   BARRIER: { id: 'BARRIER', name: '画地为牢 (障碍)', cost: 25, desc: '在棋盘上放置一个永久阻挡双方的障碍物' },
   FOG: { id: 'FOG', name: '大雾弥漫 (遮挡)', cost: 30, desc: '遮挡对方部分棋盘视野，持续2个回合' },
-  DOUBLE: { id: 'DOUBLE', name: '贴贴 (双弹)', cost: 50, desc: '本回合可以连续落两子，必须相邻' }
+  DOUBLE: { id: 'DOUBLE', name: '贴贴 (双弹)', cost: 50, desc: '本回合可以连续落两子，必须相邻' },
+  CLONE: { id: 'CLONE', name: '无中生有 (复制)', cost: 45, desc: '选择己方的一枚棋子复制到其相邻的空位上' },
+  MEDITATE: { id: 'MEDITATE', name: '冥想 (充能)', cost: 0, desc: '跳过当前回合以瞬间获取 25 点 EP 能量' },
+  CLEAR_AREA: { id: 'CLEAR_AREA', name: '风卷残云 (清除)', cost: 50, desc: '选择一个3x3区域清除里面的所有棋子和障碍' }
 };
+
 
 function createRoom(roomId) {
   const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
@@ -552,6 +556,79 @@ io.on('connection', (socket) => {
         logMsg = `💕 ${p.name} 使用了【贴贴】，这回合可以连续落两枚相邻的棋子！`;
         // Do not switch turn - we want them to place 2 stones now.
         break;
+
+      case 'CLONE': { // 无中生有 (Clone adjacent)
+        const { cloneSourceR, cloneSourceC, cloneDestR, cloneDestC } = params || {};
+        if (cloneSourceR === undefined || cloneSourceC === undefined || cloneDestR === undefined || cloneDestC === undefined) {
+          socket.emit('notification', { type: 'error', message: '必须选择复制源和目标位置' });
+          room.history.pop();
+          return;
+        }
+        const myVal = role === 'p1' ? 1 : 2;
+        if (room.board[cloneSourceR][cloneSourceC] !== myVal) {
+          socket.emit('notification', { type: 'error', message: '只能复制你自己的棋子' });
+          room.history.pop();
+          return;
+        }
+        if (room.board[cloneDestR][cloneDestC] !== 0) {
+          socket.emit('notification', { type: 'error', message: '复制目标位置必须是空格' });
+          room.history.pop();
+          return;
+        }
+        const diffR = Math.abs(cloneSourceR - cloneDestR);
+        const diffC = Math.abs(cloneSourceC - cloneDestC);
+        if (diffR > 1 || diffC > 1 || (diffR === 0 && diffC === 0)) {
+          socket.emit('notification', { type: 'error', message: '复制目标位置必须与源棋子相邻！' });
+          room.history.pop();
+          return;
+        }
+
+        room.board[cloneDestR][cloneDestC] = myVal;
+        p.energy -= skill.cost;
+        success = true;
+        logMsg = `🔮 ${p.name} 使用了【无中生有】，将 (${cloneSourceR}, ${cloneSourceC}) 的棋子复制到了其相邻的 (${cloneDestR}, ${cloneDestC}) 处！`;
+        break;
+      }
+
+      case 'MEDITATE': { // 冥想 (Meditate for energy)
+        p.energy = Math.min(100, p.energy + 25);
+        success = true;
+        logMsg = `🧘 ${p.name} 使用了【冥想】，放弃了本轮落子，并瞬间凝聚了 25 点 EP 能量！`;
+        break;
+      }
+
+      case 'CLEAR_AREA': { // 风卷残云 (Clear 3x3)
+        const { clearR, clearC } = params || {};
+        if (clearR === undefined || clearC === undefined) {
+          socket.emit('notification', { type: 'error', message: '必须选择清除区域的中心' });
+          room.history.pop();
+          return;
+        }
+
+        let clearedCount = 0;
+        for (let dr = -1; dr <= 1; dr++) {
+          for (let dc = -1; dc <= 1; dc++) {
+            const nr = clearR + dr;
+            const nc = clearC + dc;
+            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && room.board[nr][nc] !== 0) {
+              room.board[nr][nc] = 0;
+              clearedCount++;
+            }
+          }
+        }
+
+        if (clearedCount === 0) {
+          socket.emit('notification', { type: 'error', message: '选定区域内没有任何棋子或障碍物，无需清除' });
+          room.history.pop();
+          return;
+        }
+
+        p.energy -= skill.cost;
+        success = true;
+        logMsg = `💨 ${p.name} 使用了【风卷残云】，清空了以 (${clearR}, ${clearC}) 为中心的 3x3 区域内的所有棋子与障碍！`;
+        break;
+      }
+
 
       default:
         room.history.pop();

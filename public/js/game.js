@@ -111,8 +111,9 @@ let currentTurn = 'p1';
 let boardState = [];
 let doubleDropActive = false;
 let silenced = { p1: false, p2: false };
-let targetingMode = null; // null or 'SCATTER', 'CONVERT', 'BARRIER', 'FOG', 'SWAP_MY', 'SWAP_OPP'
+let targetingMode = null; // null or 'SCATTER', 'CONVERT', 'BARRIER', 'FOG', 'SWAP_MY', 'SWAP_OPP', 'CLONE', 'CLONE_DEST', 'CLEAR_AREA'
 let swapSelection = { my: null, opp: null }; // { r, c } for swap skill
+let cloneSelection = { source: null, dest: null }; // { r, c } for clone skill
 
 // DOM Elements
 const loginScreen = document.getElementById('login-screen');
@@ -120,6 +121,9 @@ const gameScreen = document.getElementById('game-screen');
 const roomIdInput = document.getElementById('room-id');
 const playerNameInput = document.getElementById('player-name');
 const joinBtn = document.getElementById('join-btn');
+const rulesBtn = document.getElementById('rules-btn');
+const closeRulesBtn = document.getElementById('close-rules-btn');
+const rulesOverlay = document.getElementById('rules-overlay');
 
 const displayRoomId = document.getElementById('display-room-id');
 const roleBadge = document.getElementById('role-badge');
@@ -148,6 +152,7 @@ const winOverlay = document.getElementById('win-overlay');
 const winTitle = document.getElementById('win-title');
 const winDesc = document.getElementById('win-desc');
 const rematchBtn = document.getElementById('rematch-btn');
+
 
 // Star Points (hoshi) positions on 15x15 board (0-indexed)
 const STAR_POINTS = [
@@ -197,6 +202,17 @@ joinBtn.addEventListener('click', () => {
   // Try to unlock AudioContext on user interaction
   synth.init();
 });
+
+// Rules Modal open/close handlers
+rulesBtn.addEventListener('click', () => {
+  rulesOverlay.classList.remove('hidden');
+  synth.init();
+});
+
+closeRulesBtn.addEventListener('click', () => {
+  rulesOverlay.classList.add('hidden');
+});
+
 
 socket.on('joinedAs', ({ role }) => {
   myRole = role;
@@ -413,7 +429,7 @@ document.querySelectorAll('.skill-card').forEach(card => {
     resetTargetingMode();
 
     // Skills that execute immediately
-    if (skillId === 'COQUETRY' || skillId === 'DOUBLE' || skillId === 'SILENCE') {
+    if (skillId === 'COQUETRY' || skillId === 'DOUBLE' || skillId === 'SILENCE' || skillId === 'MEDITATE') {
       socket.emit('useSkill', { skillId });
       synth.playSkillSound();
     } else {
@@ -452,6 +468,8 @@ function enterTargetingMode(skillId) {
   else if (skillId === 'BARRIER') promptText = '🧱 画地为牢：选择一个空格放置障碍物';
   else if (skillId === 'FOG') promptText = '🌫️ 大雾弥漫：选择一个点放置大雾（5x5）';
   else if (skillId === 'SWAP') promptText = '🔄 斗转星移：请先选择【你自己的】一颗棋子';
+  else if (skillId === 'CLONE') promptText = '🔮 无中生有：请先选择【你自己的】一颗棋子';
+  else if (skillId === 'CLEAR_AREA') promptText = '💨 风卷残云：选择要清空的区域中心（3x3）';
 
   skillTip.textContent = promptText;
 }
@@ -459,6 +477,7 @@ function enterTargetingMode(skillId) {
 function resetTargetingMode() {
   targetingMode = null;
   swapSelection = { my: null, opp: null };
+  cloneSelection = { source: null, dest: null };
   skillTip.classList.add('hidden');
   cancelActionBtn.classList.add('hidden');
   
@@ -481,7 +500,8 @@ function isCellValidTarget(r, c) {
     case 'FOG':
       return val === 0; // Empty intersection
     case 'SCATTER':
-      return true; // Any space can be center of scatter
+    case 'CLEAR_AREA':
+      return true; // Any space can be center of scatter or clear
     case 'CONVERT':
       return val === oppVal; // Must be opponent's stone
     case 'SWAP':
@@ -490,6 +510,14 @@ function isCellValidTarget(r, c) {
     case 'SWAP_OPP':
       // Second select opponent's stone
       return val === oppVal;
+    case 'CLONE':
+      // First select own stone
+      return val === myVal;
+    case 'CLONE_DEST':
+      // Second select empty spot adjacent to source
+      if (val !== 0) return false;
+      const src = cloneSelection.source;
+      return Math.abs(src.r - r) <= 1 && Math.abs(src.c - c) <= 1 && !(src.r === r && src.c === c);
     default:
       return false;
   }
@@ -499,11 +527,13 @@ function isCellValidTarget(r, c) {
 function executeSkillTargetClick(r, c) {
   if (!isCellValidTarget(r, c)) return;
 
-  const skillId = targetingMode === 'SWAP_OPP' ? 'SWAP' : targetingMode;
+  const skillId = targetingMode === 'SWAP_OPP' ? 'SWAP' : (targetingMode === 'CLONE_DEST' ? 'CLONE' : targetingMode);
   let params = {};
 
   if (targetingMode === 'SCATTER') {
     params = { centerR: r, centerC: c };
+  } else if (targetingMode === 'CLEAR_AREA') {
+    params = { clearR: r, clearC: c };
   } else if (targetingMode === 'CONVERT') {
     params = { convertR: r, convertC: c };
   } else if (targetingMode === 'BARRIER') {
@@ -536,12 +566,39 @@ function executeSkillTargetClick(r, c) {
       oppR: swapSelection.opp.r,
       oppC: swapSelection.opp.c
     };
+  } else if (targetingMode === 'CLONE') {
+    // Stage 1 of Clone: Select own stone
+    cloneSelection.source = { r, c };
+    targetingMode = 'CLONE_DEST'; // Move to stage 2: Select adjacent empty spot
+    skillTip.textContent = '🔮 无中生有：现在请选择【相邻的】一个空格位置';
+    
+    // Redraw highlights
+    const cells = board.querySelectorAll('.cell');
+    cells.forEach(cell => {
+      cell.classList.remove('targetable');
+      const tr = parseInt(cell.dataset.row);
+      const tc = parseInt(cell.dataset.col);
+      if (isCellValidTarget(tr, tc)) {
+        cell.classList.add('targetable');
+      }
+    });
+    return;
+  } else if (targetingMode === 'CLONE_DEST') {
+    // Stage 2 of Clone: Select adjacent destination
+    cloneSelection.dest = { r, c };
+    params = {
+      cloneSourceR: cloneSelection.source.r,
+      cloneSourceC: cloneSelection.source.c,
+      cloneDestR: cloneSelection.dest.r,
+      cloneDestC: cloneSelection.dest.c
+    };
   }
 
   // Send skill command to server
   socket.emit('useSkill', { skillId, params });
   synth.playSkillSound();
   resetTargetingMode();
+
 }
 
 // Ready Button event

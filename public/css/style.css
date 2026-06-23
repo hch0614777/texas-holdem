@@ -871,10 +871,120 @@ body {
   margin-bottom: 25px;
 }
 
+/* Rules Modal Overlay */
+.rules-toggle-btn {
+  margin-top: 15px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: var(--text-secondary);
+  padding: 10px 20px;
+  border-radius: 12px;
+  font-family: var(--font-family);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  transition: all 0.2s ease;
+}
+
+.rules-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.rules-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.8);
+  z-index: 250;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  animation: fadeIn 0.3s ease-out;
+}
+
+.rules-modal {
+  width: 90%;
+  max-width: 550px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  animation: scaleUp 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.15);
+}
+
+.rules-modal h2 {
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 15px;
+  text-align: center;
+  background: linear-gradient(135deg, var(--color-p1), var(--color-p2));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.rules-content {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 20px;
+  padding-right: 10px;
+  text-align: left;
+}
+
+.rules-content h3 {
+  font-size: 1.05rem;
+  margin: 15px 0 8px 0;
+  color: var(--color-p1);
+  border-left: 3px solid var(--color-p1);
+  padding-left: 8px;
+}
+
+.rules-content p {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.rules-skills-list {
+  list-style: none;
+  padding: 0;
+}
+
+.rules-skills-list li {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.4;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.rules-skills-list li strong {
+  color: #fff;
+}
+
+.rules-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rules-content::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+}
+
 /* Utility Hidden class */
 .hidden {
   display: none !important;
 }
+
 
 /* Keyframes Animations */
 @keyframes fadeIn {
