@@ -716,3 +716,23 @@ function getRoleName(role) {
   if (role === 'p2') return '🤍 执白 (Player 2)';
   return '👀 旁观者';
 }
+
+// Mobile Tab Toggle Logic
+const tabSkillsBtn = document.getElementById('tab-skills-btn');
+const tabChatBtn = document.getElementById('tab-chat-btn');
+const controlPanel = document.querySelector('.control-panel');
+
+if (tabSkillsBtn && tabChatBtn && controlPanel) {
+  tabSkillsBtn.addEventListener('click', () => {
+    tabSkillsBtn.classList.add('active');
+    tabChatBtn.classList.remove('active');
+    controlPanel.classList.remove('show-chat');
+  });
+
+  tabChatBtn.addEventListener('click', () => {
+    tabChatBtn.classList.add('active');
+    tabSkillsBtn.classList.remove('active');
+    controlPanel.classList.add('show-chat');
+  });
+}
+
