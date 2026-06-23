@@ -156,6 +156,42 @@
     </div>
   </div>
 
+  <!-- Dice Rolling Overlay -->
+  <div id="dice-overlay" class="dice-overlay hidden">
+    <div class="dice-dialog glass-panel">
+      <h2>🎲 命运动力：掷骰决断</h2>
+      <p class="dice-sub">每人掷一次骰子。1、3、5点可摸牌，2、4、6点本局禁摸牌！</p>
+      
+      <div class="dice-players-status">
+        <div class="dice-player-box" id="dice-p1-box">
+          <div class="dice-player-avatar">♟️</div>
+          <div class="dice-player-name" id="dice-p1-name">黑方玩家</div>
+          <div class="dice-player-result" id="dice-p1-result">等待掷骰...</div>
+        </div>
+        <div class="dice-vs">VS</div>
+        <div class="dice-player-box" id="dice-p2-box">
+          <div class="dice-player-avatar">🤍</div>
+          <div class="dice-player-name" id="dice-p2-name">白方玩家</div>
+          <div class="dice-player-result" id="dice-p2-result">等待掷骰...</div>
+        </div>
+      </div>
+
+      <!-- A 3D Die Container -->
+      <div class="die-container">
+        <div id="cube-die" class="cube-die">
+          <div class="die-face face-1">⚀</div>
+          <div class="die-face face-2">⚁</div>
+          <div class="die-face face-3">⚂</div>
+          <div class="die-face face-4">⚃</div>
+          <div class="die-face face-5">⚄</div>
+          <div class="die-face face-6">⚅</div>
+        </div>
+      </div>
+
+      <button id="roll-dice-btn" class="glow-btn">🎲 掷骰子</button>
+    </div>
+  </div>
+
   <!-- Coquetry Full Screen Heart Effect Overlay -->
   <div id="heart-overlay" class="heart-overlay hidden">
     <div class="heart-container"></div>

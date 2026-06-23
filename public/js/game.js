@@ -130,6 +130,25 @@ class SoundSynth {
     osc.start();
     osc.stop(this.ctx.currentTime + 0.2);
   }
+
+  playDiceTumbleSound() {
+    this.init();
+    if (!this.ctx) return;
+    let time = this.ctx.currentTime;
+    for (let i = 0; i < 6; i++) {
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(150 + Math.random() * 200, time);
+      gain.gain.setValueAtTime(0.15, time);
+      gain.gain.exponentialRampToValueAtTime(0.01, time + 0.08);
+      osc.connect(gain);
+      gain.connect(this.ctx.destination);
+      osc.start(time);
+      osc.stop(time + 0.08);
+      time += 0.12;
+    }
+  }
 }
 
 const synth = new SoundSynth();
@@ -174,6 +193,15 @@ const skillsGrid = document.getElementById('skills-grid');
 const drawCardBtn = document.getElementById('draw-card-btn');
 const cancelActionBtn = document.getElementById('cancel-action-btn');
 const skipBtn = document.getElementById('skip-btn');
+
+// Dice Roll elements
+const diceOverlay = document.getElementById('dice-overlay');
+const diceP1Name = document.getElementById('dice-p1-name');
+const diceP1Result = document.getElementById('dice-p1-result');
+const diceP2Name = document.getElementById('dice-p2-name');
+const diceP2Result = document.getElementById('dice-p2-result');
+const rollDiceBtn = document.getElementById('roll-dice-btn');
+const cubeDie = document.getElementById('cube-die');
 
 const chatMessages = document.getElementById('chat-messages');
 const chatInput = document.getElementById('chat-input');
@@ -294,8 +322,66 @@ socket.on('roomState', (room) => {
     } else {
       readyBtn.classList.add('hidden');
     }
+    if (diceOverlay) diceOverlay.classList.add('hidden');
+  } else if (room.gameState === 'rolling_dice') {
+    readyBtn.classList.add('hidden');
+    turnBanner.textContent = '🎲 掷骰子决定摸牌特权...';
+    turnBanner.className = 'turn-banner';
+    
+    // Manage Dice Overlay UI
+    if (diceOverlay) {
+      diceOverlay.classList.remove('hidden');
+      
+      // Names
+      if (diceP1Name) diceP1Name.textContent = room.players.p1 ? room.players.p1.name : '黑方玩家';
+      if (diceP2Name) diceP2Name.textContent = room.players.p2 ? room.players.p2.name : '白方玩家';
+      
+      // Results P1
+      if (diceP1Result) {
+        if (room.players.p1 && room.players.p1.diceRoll !== null) {
+          const p1CanDraw = room.players.p1.canDraw;
+          diceP1Result.innerHTML = `🎲 <b>${room.players.p1.diceRoll}</b> 点 <br><span style="color: ${p1CanDraw ? '#2ecc71' : '#e74c3c'}; font-size: 0.75rem; font-weight: bold;">(${p1CanDraw ? '🎉 可摸牌' : '🚫 禁摸牌'})</span>`;
+        } else {
+          diceP1Result.textContent = '等待掷骰...';
+        }
+      }
+      
+      // Results P2
+      if (diceP2Result) {
+        if (room.players.p2 && room.players.p2.diceRoll !== null) {
+          const p2CanDraw = room.players.p2.canDraw;
+          diceP2Result.innerHTML = `🎲 <b>${room.players.p2.diceRoll}</b> 点 <br><span style="color: ${p2CanDraw ? '#2ecc71' : '#e74c3c'}; font-size: 0.75rem; font-weight: bold;">(${p2CanDraw ? '🎉 可摸牌' : '🚫 禁摸牌'})</span>`;
+        } else {
+          diceP2Result.textContent = '等待掷骰...';
+        }
+      }
+      
+      // Button Management
+      if (rollDiceBtn) {
+        if (myRole !== 'p1' && myRole !== 'p2') {
+          rollDiceBtn.classList.add('hidden');
+        } else {
+          rollDiceBtn.classList.remove('hidden');
+          const myPlayer = room.players[myRole];
+          if (myPlayer && myPlayer.diceRoll !== null) {
+            rollDiceBtn.disabled = true;
+            rollDiceBtn.textContent = '已掷骰，等待对手...';
+            if (cubeDie) {
+              cubeDie.className = `cube-die result-${myPlayer.diceRoll}`;
+            }
+          } else {
+            // Only enable button if no roll animation is currently running locally
+            if (!rollDiceBtn.classList.contains('animating')) {
+              rollDiceBtn.disabled = false;
+              rollDiceBtn.textContent = '🎲 掷骰子';
+            }
+          }
+        }
+      }
+    }
   } else if (room.gameState === 'playing') {
     readyBtn.classList.add('hidden');
+    if (diceOverlay) diceOverlay.classList.add('hidden');
     
     // Who's turn?
     const activePlayerName = room.players[room.currentTurn] ? room.players[room.currentTurn].name : '玩家';
@@ -311,6 +397,7 @@ socket.on('roomState', (room) => {
     turnBanner.textContent = '🏁 对局结束';
     turnBanner.className = 'turn-banner';
     readyBtn.classList.add('hidden');
+    if (diceOverlay) diceOverlay.classList.add('hidden');
     
     // Show win overlay
     showWinOverlay(room);
@@ -321,7 +408,8 @@ socket.on('roomState', (room) => {
     p1Name.textContent = room.players.p1.name;
     const count = room.players.p1.cardCount || 0;
     p1EnergyBar.style.width = `${(count / 5) * 100}%`;
-    p1EnergyText.textContent = `手牌: ${count} / 5 张`;
+    const rollInfo = room.players.p1.diceRoll !== null ? ` (🎲 ${room.players.p1.diceRoll}点, ${room.players.p1.canDraw ? '可摸' : '禁摸'})` : '';
+    p1EnergyText.textContent = `手牌: ${count} / 5 张${rollInfo}`;
   } else {
     p1Name.textContent = '等待加入...';
     p1EnergyBar.style.width = '0%';
@@ -332,7 +420,8 @@ socket.on('roomState', (room) => {
     p2Name.textContent = room.players.p2.name;
     const count = room.players.p2.cardCount || 0;
     p2EnergyBar.style.width = `${(count / 5) * 100}%`;
-    p2EnergyText.textContent = `手牌: ${count} / 5 张`;
+    const rollInfo = room.players.p2.diceRoll !== null ? ` (🎲 ${room.players.p2.diceRoll}点, ${room.players.p2.canDraw ? '可摸' : '禁摸'})` : '';
+    p2EnergyText.textContent = `手牌: ${count} / 5 张${rollInfo}`;
   } else {
     p2Name.textContent = '等待加入...';
     p2EnergyBar.style.width = '0%';
@@ -962,6 +1051,30 @@ function executeSkillTargetClick(r, c) {
 readyBtn.addEventListener('click', () => {
   socket.emit('startGame');
   synth.init();
+});
+
+// Roll Dice button event
+rollDiceBtn.addEventListener('click', () => {
+  if (myRole !== 'p1' && myRole !== 'p2') return;
+  
+  // Disable button, play tumble animation and sound locally first
+  rollDiceBtn.disabled = true;
+  rollDiceBtn.classList.add('animating');
+  rollDiceBtn.textContent = '正在掷骰中...';
+  
+  // Clean classes
+  if (cubeDie) {
+    cubeDie.className = 'cube-die rolling';
+  }
+  
+  // Play tumbling sound
+  synth.playDiceTumbleSound();
+  
+  // Wait for animation to finish before calling server
+  setTimeout(() => {
+    rollDiceBtn.classList.remove('animating');
+    socket.emit('rollDice');
+  }, 1200);
 });
 
 // Skip/End Turn manually

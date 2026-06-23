@@ -61,7 +61,15 @@ function createRoom(roomId) {
       p1: null, // { r, c, expiresTurn }
       p2: null
     },
-    turnCount: 1
+    turnCount: 1,
+    diceRolls: {
+      p1: null,
+      p2: null
+    },
+    canDraw: {
+      p1: true,
+      p2: true
+    }
   };
 }
 
@@ -122,7 +130,9 @@ function sendRoomState(roomId) {
         id: room.players[role].id,
         name: room.players[role].name,
         cardCount: room.players[role].cards ? room.players[role].cards.length : 0,
-        color: role === 'p1' ? 'black' : 'white'
+        color: role === 'p1' ? 'black' : 'white',
+        diceRoll: room.diceRolls ? room.diceRolls[role] : null,
+        canDraw: room.canDraw ? room.canDraw[role] : true
       };
     } else {
       serializedPlayers[role] = null;
@@ -235,14 +245,14 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (room.gameState === 'playing') {
+    if (room.gameState === 'playing' || room.gameState === 'rolling_dice') {
       socket.emit('notification', { type: 'error', message: '游戏已在进行中' });
       return;
     }
 
     // Reset board & state
     room.board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
-    room.gameState = 'playing';
+    room.gameState = 'rolling_dice';
     room.currentTurn = 'p1';
     room.winner = null;
     room.winningLine = null;
@@ -259,12 +269,62 @@ io.on('connection', (socket) => {
     room.silenced = { p1: false, p2: false };
     room.fog = { p1: null, p2: null };
     room.doubleDropState = { active: false, firstStone: null };
+    
+    // Initialize dice rolls & draw permissions
+    room.diceRolls = { p1: null, p2: null };
+    room.canDraw = { p1: true, p2: true };
 
     io.to(roomId).emit('chatMessage', {
       name: '系统',
-      text: '⚔️ 游戏正式开始！执黑(P1)先手落子。',
+      text: '🎲 游戏即将开始！请先掷骰子决定您本局是否可以摸牌（1、3、5点可摸牌，2、4、6点禁摸牌）。',
       time: new Date().toLocaleTimeString()
     });
+
+    sendRoomState(roomId);
+  });
+
+  // Roll Dice action
+  socket.on('rollDice', () => {
+    const roomId = socket.roomId;
+    const room = rooms[roomId];
+    if (!room || room.gameState !== 'rolling_dice') return;
+
+    const role = socket.role;
+    if (role !== 'p1' && role !== 'p2') return;
+
+    if (room.diceRolls[role] !== null) {
+      socket.emit('notification', { type: 'error', message: '您已经掷过骰子了' });
+      return;
+    }
+
+    const rollVal = Math.floor(Math.random() * 6) + 1;
+    room.diceRolls[role] = rollVal;
+    
+    // 1, 3, 5 can draw; 2, 4, 6 cannot draw
+    const isOdd = rollVal % 2 !== 0;
+    room.canDraw[role] = isOdd;
+
+    io.to(roomId).emit('chatMessage', {
+      name: '系统',
+      text: `🎲 玩家 ${room.players[role].name} 掷出了 ${rollVal} 点！${isOdd ? '🎉 本局可正常摸牌！' : '🚫 本局不能摸牌！'}`,
+      time: new Date().toLocaleTimeString()
+    });
+
+    // Notify player directly too
+    socket.emit('notification', { 
+      type: 'info', 
+      message: `您掷出了 ${rollVal} 点！${isOdd ? '🎉 恭喜！本局您将拥有摸卡牌特权。' : '🚫 遗憾！本局您将无法摸取新卡牌。'}`
+    });
+
+    // Transition to playing once both have rolled
+    if (room.diceRolls.p1 !== null && room.diceRolls.p2 !== null) {
+      room.gameState = 'playing';
+      io.to(roomId).emit('chatMessage', {
+        name: '系统',
+        text: '⚔️ 双方玩家均已掷骰完毕，对局正式开始！执黑(P1)先手落子。',
+        time: new Date().toLocaleTimeString()
+      });
+    }
 
     sendRoomState(roomId);
   });
@@ -374,6 +434,11 @@ io.on('connection', (socket) => {
     const p = room.players[role];
     if (!p.cards || !p.cards.includes(skillId)) {
       socket.emit('notification', { type: 'error', message: '你手牌中没有该技能卡！' });
+      return;
+    }
+
+    if (skillId === 'MEDITATE' && room.canDraw && room.canDraw[role] === false) {
+      socket.emit('notification', { type: 'error', message: '由于您本局掷骰结果为偶数（2、4、6），本局您无法使用冥想（摸牌）卡！' });
       return;
     }
 
@@ -701,6 +766,11 @@ io.on('connection', (socket) => {
     const role = socket.role;
     if (role !== room.currentTurn) {
       socket.emit('notification', { type: 'error', message: '只能在你的回合摸牌' });
+      return;
+    }
+
+    if (room.canDraw && room.canDraw[role] === false) {
+      socket.emit('notification', { type: 'error', message: '由于您本局掷骰结果为偶数（2、4、6），本局您无法摸牌！' });
       return;
     }
 
