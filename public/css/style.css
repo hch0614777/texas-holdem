@@ -13,8 +13,8 @@
   --color-barrier: #f39c12; /* Golden orange */
   --color-barrier-glow: rgba(243, 156, 18, 0.4);
   --font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --board-wood: #111424;
-  --board-grid: #282e4e;
+  --board-wood: #000000;
+  --board-grid: rgba(255, 255, 255, 0.25);
 }
 
 * {
@@ -1375,5 +1375,43 @@ body {
   color: var(--text-secondary);
   opacity: 0.6;
 }
+
+/* Drag and Drop Previews */
+.cell.drag-preview-black::before {
+  content: "";
+  position: absolute;
+  width: 75%;
+  height: 75%;
+  border-radius: 50%;
+  background: rgba(0, 210, 255, 0.4);
+  border: 2px solid var(--color-p1);
+  box-shadow: 0 0 10px var(--color-p1);
+  z-index: 9;
+}
+
+.cell.drag-preview-white::before {
+  content: "";
+  position: absolute;
+  width: 75%;
+  height: 75%;
+  border-radius: 50%;
+  background: rgba(255, 0, 127, 0.4);
+  border: 2px solid var(--color-p2);
+  box-shadow: 0 0 10px var(--color-p2);
+  z-index: 9;
+}
+
+.cell.drag-preview-targetable::before {
+  content: "";
+  position: absolute;
+  width: 80%;
+  height: 80%;
+  border: 2px solid #f39c12;
+  box-shadow: 0 0 12px #f39c12;
+  border-radius: 50%;
+  background: rgba(243, 156, 18, 0.2);
+  z-index: 9;
+}
+
 
 

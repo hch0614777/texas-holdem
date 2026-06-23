@@ -16,21 +16,32 @@ class SoundSynth {
   playStoneSound() {
     this.init();
     if (!this.ctx) return;
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-    
-    osc.type = 'sine';
-    // Deep wood drop sound followed by higher tick
-    osc.frequency.setValueAtTime(150, this.ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(80, this.ctx.currentTime + 0.1);
-    
-    gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
-    
-    osc.connect(gain);
-    gain.connect(this.ctx.destination);
-    osc.start();
-    osc.stop(this.ctx.currentTime + 0.15);
+
+    // 1. Crystal tick (Slate Stone impact)
+    const osc1 = this.ctx.createOscillator();
+    const gain1 = this.ctx.createGain();
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(800, this.ctx.currentTime);
+    osc1.frequency.exponentialRampToValueAtTime(300, this.ctx.currentTime + 0.05);
+    gain1.gain.setValueAtTime(0.3, this.ctx.currentTime);
+    gain1.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.06);
+    osc1.connect(gain1);
+    gain1.connect(this.ctx.destination);
+    osc1.start();
+    osc1.stop(this.ctx.currentTime + 0.06);
+
+    // 2. Wooden resonance body
+    const osc2 = this.ctx.createOscillator();
+    const gain2 = this.ctx.createGain();
+    osc2.type = 'triangle';
+    osc2.frequency.setValueAtTime(180, this.ctx.currentTime);
+    osc2.frequency.exponentialRampToValueAtTime(90, this.ctx.currentTime + 0.12);
+    gain2.gain.setValueAtTime(0.4, this.ctx.currentTime);
+    gain2.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + 0.15);
+    osc2.connect(gain2);
+    gain2.connect(this.ctx.destination);
+    osc2.start();
+    osc2.stop(this.ctx.currentTime + 0.15);
   }
 
   playSkillSound() {
@@ -179,8 +190,6 @@ function initBoardDOM() {
         cell.classList.add('star-point-dot');
       }
 
-      // Add click listener
-      cell.addEventListener('click', () => handleCellClick(r, c));
       board.appendChild(cell);
     }
   }
@@ -229,10 +238,30 @@ socket.on('joinedAs', ({ role }) => {
 
 // Render the entire game board and update status panels
 socket.on('roomState', (room) => {
+  // Check if a stone was added (for playing sound)
+  let newStonesAdded = false;
+  if (boardState && boardState.length === 15 && room.board && room.board.length === 15) {
+    for (let r = 0; r < 15; r++) {
+      for (let c = 0; c < 15; c++) {
+        const oldVal = boardState[r][c];
+        const newVal = room.board[r][c];
+        if (oldVal === 0 && (newVal === 1 || newVal === 2)) {
+          newStonesAdded = true;
+        }
+      }
+    }
+  }
+
   currentTurn = room.currentTurn;
   boardState = room.board;
+
+  if (newStonesAdded) {
+    synth.playStoneSound();
+  }
+
   doubleDropActive = room.doubleDropActive;
   silenced = room.silenced;
+
 
   // Update turn header banner
   if (room.gameState === 'waiting') {
@@ -402,19 +431,142 @@ function updateSkillBar(room) {
   });
 }
 
-// Handle Cell Placement or Skill Targeting Click
-function handleCellClick(r, c) {
-  if (targetingMode) {
-    executeSkillTargetClick(r, c);
-    return;
-  }
+// Drag and Drop Placement logic
+let dragActive = false;
+let currentDragCell = null; // { r, c }
 
-  // Normal stone placement
-  if (currentTurn === myRole && boardState[r][c] === 0) {
-    socket.emit('placeStone', { r, c });
-    synth.playStoneSound();
+function getCellFromCoords(clientX, clientY) {
+  const element = document.elementFromPoint(clientX, clientY);
+  if (!element) return null;
+  
+  if (element.classList.contains('cell')) {
+    const r = parseInt(element.dataset.row);
+    const c = parseInt(element.dataset.col);
+    return { r, c, element };
+  }
+  
+  const cellEl = element.closest('.cell');
+  if (cellEl) {
+    const r = parseInt(cellEl.dataset.row);
+    const c = parseInt(cellEl.dataset.col);
+    return { r, c, element: cellEl };
+  }
+  return null;
+}
+
+function handleDragStart(clientX, clientY) {
+  if (currentTurn !== myRole) return;
+  
+  const cell = getCellFromCoords(clientX, clientY);
+  if (cell) {
+    dragActive = true;
+    updateDragSelection(cell.r, cell.c);
   }
 }
+
+function handleDragMove(clientX, clientY, e) {
+  if (!dragActive) return;
+  
+  if (e && e.cancelable) {
+    e.preventDefault(); // Prevent page bouncing on mobile
+  }
+  
+  const cell = getCellFromCoords(clientX, clientY);
+  if (cell) {
+    updateDragSelection(cell.r, cell.c);
+  } else {
+    clearDragPreview();
+    currentDragCell = null;
+  }
+}
+
+function handleDragEnd() {
+  if (!dragActive) return;
+  dragActive = false;
+  
+  if (currentDragCell) {
+    const { r, c } = currentDragCell;
+    
+    if (targetingMode) {
+      executeSkillTargetClick(r, c);
+    } else {
+      if (boardState[r][c] === 0) {
+        socket.emit('placeStone', { r, c });
+      }
+    }
+  }
+  
+  currentDragCell = null;
+  clearDragPreview();
+}
+
+function updateDragSelection(r, c) {
+  if (currentDragCell && currentDragCell.r === r && currentDragCell.c === c) return;
+  
+  clearDragPreview();
+  currentDragCell = { r, c };
+  
+  const cellEl = board.querySelector(`.row-${r}.col-${c}`);
+  if (!cellEl) return;
+  
+  if (targetingMode) {
+    if (isCellValidTarget(r, c)) {
+      cellEl.classList.add('drag-preview-targetable');
+    }
+  } else {
+    if (boardState[r][c] === 0) {
+      if (myRole === 'p1') {
+        cellEl.classList.add('drag-preview-black');
+      } else if (myRole === 'p2') {
+        cellEl.classList.add('drag-preview-white');
+      }
+    }
+  }
+}
+
+function clearDragPreview() {
+  const cells = board.querySelectorAll('.cell');
+  cells.forEach(cell => {
+    cell.classList.remove('drag-preview-black', 'drag-preview-white', 'drag-preview-targetable');
+  });
+}
+
+// Attach Drag & Drop Listeners to Board
+board.addEventListener('touchstart', (e) => {
+  if (e.touches.length > 0) {
+    handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
+  }
+}, { passive: false });
+
+board.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 0) {
+    handleDragMove(e.touches[0].clientX, e.touches[0].clientY, e);
+  }
+}, { passive: false });
+
+board.addEventListener('touchend', (e) => {
+  handleDragEnd();
+});
+
+let isBoardMouseDown = false;
+board.addEventListener('mousedown', (e) => {
+  isBoardMouseDown = true;
+  handleDragStart(e.clientX, e.clientY);
+});
+
+board.addEventListener('mousemove', (e) => {
+  if (isBoardMouseDown) {
+    handleDragMove(e.clientX, e.clientY, e);
+  }
+});
+
+window.addEventListener('mouseup', () => {
+  if (isBoardMouseDown) {
+    isBoardMouseDown = false;
+    handleDragEnd();
+  }
+});
+
 
 // Skill descriptions mapping for long-press tooltips
 const SKILL_DESCRIPTIONS = {
