@@ -1599,5 +1599,38 @@ body {
 .cube-die.result-5 { transform: rotateX(0deg) rotateY(90deg); }
 .cube-die.result-6 { transform: rotateX(0deg) rotateY(180deg); }
 
+/* Mini 3D Die Container */
+.die-container-mini {
+  width: 44px;
+  height: 44px;
+  perspective: 200px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 0 4px;
+}
+
+.die-container-mini .cube-die {
+  width: 28px;
+  height: 28px;
+}
+
+.die-container-mini .die-face {
+  width: 28px;
+  height: 28px;
+  font-size: 1.4rem;
+  line-height: 24px;
+  border-radius: 5px;
+  border: 1px solid #ccc;
+}
+
+/* Mini Cube Translate depth */
+.die-container-mini .face-1 { transform: rotateY(0deg) translateZ(14px); color: #e74c3c; }
+.die-container-mini .face-2 { transform: rotateY(90deg) translateZ(14px); }
+.die-container-mini .face-3 { transform: rotateX(90deg) translateZ(14px); }
+.die-container-mini .face-4 { transform: rotateX(-90deg) translateZ(14px); }
+.die-container-mini .face-5 { transform: rotateY(-90deg) translateZ(14px); }
+.die-container-mini .face-6 { transform: rotateY(180deg) translateZ(14px); }
+
 
 

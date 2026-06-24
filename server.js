@@ -62,14 +62,8 @@ function createRoom(roomId) {
       p2: null
     },
     turnCount: 1,
-    diceRolls: {
-      p1: null,
-      p2: null
-    },
-    canDraw: {
-      p1: true,
-      p2: true
-    }
+    currentTurnDice: null,
+    canDrawThisTurn: true
   };
 }
 
@@ -130,9 +124,7 @@ function sendRoomState(roomId) {
         id: room.players[role].id,
         name: room.players[role].name,
         cardCount: room.players[role].cards ? room.players[role].cards.length : 0,
-        color: role === 'p1' ? 'black' : 'white',
-        diceRoll: room.diceRolls ? room.diceRolls[role] : null,
-        canDraw: room.canDraw ? room.canDraw[role] : true
+        color: role === 'p1' ? 'black' : 'white'
       };
     } else {
       serializedPlayers[role] = null;
@@ -154,7 +146,9 @@ function sendRoomState(roomId) {
       p1: room.fog.p1 ? { r: room.fog.p1.r, c: room.fog.p1.c } : null,
       p2: room.fog.p2 ? { r: room.fog.p2.r, c: room.fog.p2.c } : null
     },
-    turnCount: room.turnCount
+    turnCount: room.turnCount,
+    currentTurnDice: room.currentTurnDice !== undefined ? room.currentTurnDice : null,
+    canDrawThisTurn: room.canDrawThisTurn !== undefined ? room.canDrawThisTurn : true
   });
 
   // 2. Emit private hand list to each player individually
@@ -245,14 +239,14 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (room.gameState === 'playing' || room.gameState === 'rolling_dice') {
+    if (room.gameState === 'playing') {
       socket.emit('notification', { type: 'error', message: '游戏已在进行中' });
       return;
     }
 
     // Reset board & state
     room.board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(0));
-    room.gameState = 'rolling_dice';
+    room.gameState = 'playing';
     room.currentTurn = 'p1';
     room.winner = null;
     room.winningLine = null;
@@ -270,61 +264,16 @@ io.on('connection', (socket) => {
     room.fog = { p1: null, p2: null };
     room.doubleDropState = { active: false, firstStone: null };
     
-    // Initialize dice rolls & draw permissions
-    room.diceRolls = { p1: null, p2: null };
-    room.canDraw = { p1: true, p2: true };
-
-    io.to(roomId).emit('chatMessage', {
-      name: '系统',
-      text: '🎲 游戏即将开始！请先掷骰子决定您本局是否可以摸牌（1、3、5点可摸牌，2、4、6点禁摸牌）。',
-      time: new Date().toLocaleTimeString()
-    });
-
-    sendRoomState(roomId);
-  });
-
-  // Roll Dice action
-  socket.on('rollDice', () => {
-    const roomId = socket.roomId;
-    const room = rooms[roomId];
-    if (!room || room.gameState !== 'rolling_dice') return;
-
-    const role = socket.role;
-    if (role !== 'p1' && role !== 'p2') return;
-
-    if (room.diceRolls[role] !== null) {
-      socket.emit('notification', { type: 'error', message: '您已经掷过骰子了' });
-      return;
-    }
-
+    // Initial dice roll for P1
     const rollVal = Math.floor(Math.random() * 6) + 1;
-    room.diceRolls[role] = rollVal;
-    
-    // 1, 3, 5 can draw; 2, 4, 6 cannot draw
-    const isOdd = rollVal % 2 !== 0;
-    room.canDraw[role] = isOdd;
+    room.currentTurnDice = rollVal;
+    room.canDrawThisTurn = (rollVal % 2 !== 0);
 
     io.to(roomId).emit('chatMessage', {
       name: '系统',
-      text: `🎲 玩家 ${room.players[role].name} 掷出了 ${rollVal} 点！${isOdd ? '🎉 本局可正常摸牌！' : '🚫 本局不能摸牌！'}`,
+      text: `⚔️ 游戏正式开始！执黑(P1)先手。首回合掷骰点数: ${rollVal} 点，${room.canDrawThisTurn ? '🎉 可摸牌！' : '🚫 禁摸牌！'}`,
       time: new Date().toLocaleTimeString()
     });
-
-    // Notify player directly too
-    socket.emit('notification', { 
-      type: 'info', 
-      message: `您掷出了 ${rollVal} 点！${isOdd ? '🎉 恭喜！本局您将拥有摸卡牌特权。' : '🚫 遗憾！本局您将无法摸取新卡牌。'}`
-    });
-
-    // Transition to playing once both have rolled
-    if (room.diceRolls.p1 !== null && room.diceRolls.p2 !== null) {
-      room.gameState = 'playing';
-      io.to(roomId).emit('chatMessage', {
-        name: '系统',
-        text: '⚔️ 双方玩家均已掷骰完毕，对局正式开始！执黑(P1)先手落子。',
-        time: new Date().toLocaleTimeString()
-      });
-    }
 
     sendRoomState(roomId);
   });
@@ -437,8 +386,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (skillId === 'MEDITATE' && room.canDraw && room.canDraw[role] === false) {
-      socket.emit('notification', { type: 'error', message: '由于您本局掷骰结果为偶数（2、4、6），本局您无法使用冥想（摸牌）卡！' });
+    if (skillId === 'MEDITATE' && room.canDrawThisTurn === false) {
+      socket.emit('notification', { type: 'error', message: `由于您本回合掷骰结果为偶数（${room.currentTurnDice}点），本回合您无法使用冥想（摸牌）卡！` });
       return;
     }
 
@@ -769,8 +718,8 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (room.canDraw && room.canDraw[role] === false) {
-      socket.emit('notification', { type: 'error', message: '由于您本局掷骰结果为偶数（2、4、6），本局您无法摸牌！' });
+    if (room.canDrawThisTurn === false) {
+      socket.emit('notification', { type: 'error', message: `由于您本回合掷骰结果为偶数（${room.currentTurnDice}点），本回合您禁摸牌！` });
       return;
     }
 
@@ -883,6 +832,11 @@ function switchTurn(room) {
   room.currentTurn = nextRole;
   room.turnCount++;
 
+  // Roll a die for the next turn
+  const rollVal = Math.floor(Math.random() * 6) + 1;
+  room.currentTurnDice = rollVal;
+  room.canDrawThisTurn = (rollVal % 2 !== 0);
+
   // Clear silence for the player whose turn just ended
   const prevRole = nextRole === 'p1' ? 'p2' : 'p1';
   room.silenced[prevRole] = false;
@@ -893,6 +847,16 @@ function switchTurn(room) {
     io.to(room.roomId).emit('chatMessage', {
       name: '系统',
       text: `🌫️ 笼罩在 ${room.players[room.currentTurn].name} 视线上的迷雾消散了。`,
+      time: new Date().toLocaleTimeString()
+    });
+  }
+
+  // Log roll result in system message
+  const nextPlayer = room.players[room.currentTurn];
+  if (nextPlayer) {
+    io.to(room.roomId).emit('chatMessage', {
+      name: '系统',
+      text: `🎲 轮到 ${nextPlayer.name}，掷骰点数: ${rollVal} 点，${room.canDrawThisTurn ? '🎉 可摸牌！' : '🚫 禁摸牌！'}`,
       time: new Date().toLocaleTimeString()
     });
   }
