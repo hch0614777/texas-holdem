@@ -606,6 +606,46 @@ body {
   z-index: 7;
 }
 
+/* Drag hover indicators for touch/drag preview */
+.cell.drag-hover-black::before {
+  content: "";
+  position: absolute;
+  width: 75%;
+  height: 75%;
+  border-radius: 50%;
+  background: rgba(0, 210, 255, 0.4);
+  border: 2px dashed var(--color-p1);
+  box-shadow: 0 0 12px var(--color-p1-glow);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.cell.drag-hover-white::before {
+  content: "";
+  position: absolute;
+  width: 75%;
+  height: 75%;
+  border-radius: 50%;
+  background: rgba(255, 0, 127, 0.4);
+  border: 2px dashed var(--color-p2);
+  box-shadow: 0 0 12px var(--color-p2-glow);
+  z-index: 6;
+  pointer-events: none;
+}
+
+.cell.drag-hover-target::before {
+  content: "";
+  position: absolute;
+  width: 80%;
+  height: 80%;
+  border: 3px solid #f39c12;
+  box-shadow: 0 0 15px #f39c12;
+  border-radius: 50%;
+  z-index: 7;
+  pointer-events: none;
+  animation: pulse 1s infinite;
+}
+
 /* Right Controls Column */
 .control-panel {
   display: flex;

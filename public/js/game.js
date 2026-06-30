@@ -1,6 +1,66 @@
 // Connect to Socket.io
 const socket = io();
 
+// Premium Floating Toast Notification System
+function showToast(message, type = 'info') {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.position = 'fixed';
+    container.style.top = '24px';
+    container.style.right = '24px';
+    container.style.zIndex = '9999';
+    container.style.display = 'flex';
+    container.style.flexDirection = 'column';
+    container.style.gap = '12px';
+    document.body.appendChild(container);
+  }
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast-${type}`;
+  toast.textContent = message;
+  
+  toast.style.background = 'rgba(15, 18, 36, 0.92)';
+  toast.style.color = '#fff';
+  toast.style.padding = '14px 28px';
+  toast.style.borderRadius = '12px';
+  toast.style.border = '1px solid rgba(255, 255, 255, 0.12)';
+  toast.style.boxShadow = '0 12px 36px rgba(0, 0, 0, 0.45)';
+  toast.style.backdropFilter = 'blur(16px)';
+  toast.style.fontSize = '0.92rem';
+  toast.style.fontWeight = '700';
+  toast.style.transform = 'translateX(140%)';
+  toast.style.transition = 'all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+  toast.style.pointerEvents = 'auto';
+  
+  if (type === 'error') {
+    toast.style.borderLeft = '5px solid #ff4a4a';
+    toast.style.boxShadow = '0 12px 36px rgba(255, 74, 74, 0.2)';
+  } else if (type === 'success') {
+    toast.style.borderLeft = '5px solid #2ecc71';
+    toast.style.boxShadow = '0 12px 36px rgba(46, 204, 113, 0.2)';
+  } else {
+    toast.style.borderLeft = '5px solid #f39c12';
+    toast.style.boxShadow = '0 12px 36px rgba(243, 156, 18, 0.2)';
+  }
+
+  container.appendChild(toast);
+
+  // Force reflow
+  toast.offsetHeight;
+
+  toast.style.transform = 'translateX(0)';
+
+  setTimeout(() => {
+    toast.style.transform = 'translateX(140%)';
+    toast.style.opacity = '0';
+    setTimeout(() => {
+      toast.remove();
+    }, 400);
+  }, 3500);
+}
+
 // Web Audio API Synthesizer for high-fidelity game sounds
 class SoundSynth {
   constructor() {
@@ -165,6 +225,8 @@ let swapSelection = { my: null, opp: null }; // { r, c } for swap skill
 let cloneSelection = { source: null, dest: null }; // { r, c } for clone skill
 let myHandCards = []; // Hand cards received from server
 let lastTurnCount = 0;
+let lastRoomState = null;
+let currentTurnPhase = 'pre';
 
 // DOM Elements
 const loginScreen = document.getElementById('login-screen');
@@ -246,7 +308,7 @@ joinBtn.addEventListener('click', () => {
   const name = playerNameInput.value.trim();
 
   if (!roomId || !name) {
-    alert('请输入房间号和昵称！');
+    showToast('请输入房间号和昵称！', 'error');
     return;
   }
 
@@ -283,6 +345,18 @@ socket.on('joinedAs', ({ role }) => {
 
 // Render the entire game board and update status panels
 socket.on('roomState', (room) => {
+  lastRoomState = room;
+  currentTurnPhase = room.turnPhase || 'pre';
+  
+  // Update skip/end turn button dynamically
+  if (room.gameState === 'playing' && room.currentTurn === myRole) {
+    skipBtn.disabled = false;
+    skipBtn.textContent = room.turnPhase === 'post' ? '🏁 结束回合' : '⏭️ 跳过回合';
+  } else {
+    skipBtn.disabled = true;
+    skipBtn.textContent = '⏭️ 跳过回合';
+  }
+
   // Check if a stone was added (for playing sound)
   let newStonesAdded = false;
   if (boardState && boardState.length === 15 && room.board && room.board.length === 15) {
@@ -477,7 +551,7 @@ function updateBoardCells(room) {
       }
 
       // Add Preview Classes for hover placement if it is our turn
-      if (val === 0 && room.gameState === 'playing' && room.currentTurn === myRole && !targetingMode) {
+      if (val === 0 && room.gameState === 'playing' && room.currentTurn === myRole && room.turnPhase === 'pre' && !targetingMode) {
         if (myRole === 'p1') {
           cell.classList.add('preview-black');
         } else if (myRole === 'p2') {
@@ -543,10 +617,14 @@ function renderHandCards(room) {
     `;
 
     // Disable conditions:
+    const cardPhase = (skillId === 'CLONE') ? 'post' : 'pre';
+    const isPhaseMismatch = room.turnPhase !== cardPhase;
+
     const isDisabled = 
       room.gameState !== 'playing' || 
       !isMyTurn || 
-      isSilenced;
+      isSilenced ||
+      isPhaseMismatch;
 
     if (isDisabled) {
       card.classList.add('disabled');
@@ -622,19 +700,17 @@ function renderHandCards(room) {
   });
 }
 
-// Drag and Drop Placement logic
+// Board Interaction variables
 let dragActive = false;
+let startTouchCell = null; // { r, c }
 let currentDragCell = null; // { r, c }
+let dragStartCoords = { x: 0, y: 0 };
+let hasDraggedSignificantly = false;
+let isTouchDevice = false;
 
 function getCellFromCoords(clientX, clientY) {
   const element = document.elementFromPoint(clientX, clientY);
   if (!element) return null;
-  
-  if (element.classList.contains('cell')) {
-    const r = parseInt(element.dataset.row);
-    const c = parseInt(element.dataset.col);
-    return { r, c, element };
-  }
   
   const cellEl = element.closest('.cell');
   if (cellEl) {
@@ -645,50 +721,104 @@ function getCellFromCoords(clientX, clientY) {
   return null;
 }
 
-function handleDragStart(clientX, clientY) {
+// Mobile touch handlers
+function handleTouchStart(e) {
+  isTouchDevice = true;
   if (currentTurn !== myRole) return;
+  if (e.touches.length === 0) return;
   
-  const cell = getCellFromCoords(clientX, clientY);
+  const touch = e.touches[0];
+  const cell = getCellFromCoords(touch.clientX, touch.clientY);
   if (cell) {
     dragActive = true;
+    startTouchCell = { r: cell.r, c: cell.c };
+    currentDragCell = { r: cell.r, c: cell.c };
+    dragStartCoords = { x: touch.clientX, y: touch.clientY };
+    hasDraggedSignificantly = false;
     updateDragSelection(cell.r, cell.c);
   }
 }
 
-function handleDragMove(clientX, clientY, e) {
-  if (!dragActive) return;
+function handleTouchMove(e) {
+  if (!dragActive || e.touches.length === 0) return;
   
-  if (e && e.cancelable) {
-    e.preventDefault(); // Prevent page bouncing on mobile
+  const touch = e.touches[0];
+  const dist = Math.hypot(touch.clientX - dragStartCoords.x, touch.clientY - dragStartCoords.y);
+  
+  if (dist > 12) {
+    hasDraggedSignificantly = true;
   }
   
-  const cell = getCellFromCoords(clientX, clientY);
-  if (cell) {
-    updateDragSelection(cell.r, cell.c);
-  } else {
-    clearDragPreview();
-    currentDragCell = null;
+  if (hasDraggedSignificantly) {
+    if (e.cancelable) e.preventDefault(); // Prevent screen scroll when actively aiming
+    const cell = getCellFromCoords(touch.clientX, touch.clientY);
+    if (cell) {
+      updateDragSelection(cell.r, cell.c);
+    }
   }
 }
 
-function handleDragEnd() {
+function handleTouchEnd(e) {
   if (!dragActive) return;
   dragActive = false;
   
-  if (currentDragCell) {
-    const { r, c } = currentDragCell;
-    
+  // Prevent ghost clicks on mobile
+  if (e && e.cancelable) {
+    e.preventDefault();
+  }
+  
+  // Decide target cell: if dragged significantly, use currentDragCell; otherwise use startTouchCell
+  const targetCell = hasDraggedSignificantly ? currentDragCell : startTouchCell;
+  
+  if (targetCell) {
+    const { r, c } = targetCell;
     if (targetingMode) {
       executeSkillTargetClick(r, c);
     } else {
+      if (currentTurnPhase === 'post') {
+        showToast('本回合已落子！请使用后置技能（无中生有）或结束回合。', 'warning');
+        startTouchCell = null;
+        currentDragCell = null;
+        clearDragPreview();
+        return;
+      }
       if (boardState[r][c] === 0) {
         socket.emit('placeStone', { r, c });
+      } else {
+        showToast('该位置已有棋子或障碍物！', 'error');
       }
     }
   }
   
+  startTouchCell = null;
   currentDragCell = null;
   clearDragPreview();
+}
+
+// Mouse click placement (Direct click, no dragging required for desktop)
+function handleMouseClick(e) {
+  if (isTouchDevice) return; // Ignore on touch devices to avoid double placement
+  if (currentTurn !== myRole) return;
+  
+  const cellEl = e.target.closest('.cell');
+  if (!cellEl) return;
+  
+  const r = parseInt(cellEl.dataset.row);
+  const c = parseInt(cellEl.dataset.col);
+  
+  if (targetingMode) {
+    executeSkillTargetClick(r, c);
+  } else {
+    if (currentTurnPhase === 'post') {
+      showToast('本回合已落子！请使用后置技能（无中生有）或结束回合。', 'warning');
+      return;
+    }
+    if (boardState[r][c] === 0) {
+      socket.emit('placeStone', { r, c });
+    } else {
+      showToast('该位置已有棋子或障碍物！', 'error');
+    }
+  }
 }
 
 function updateDragSelection(r, c) {
@@ -702,14 +832,14 @@ function updateDragSelection(r, c) {
   
   if (targetingMode) {
     if (isCellValidTarget(r, c)) {
-      cellEl.classList.add('drag-preview-targetable');
+      cellEl.classList.add('drag-hover-target');
     }
   } else {
     if (boardState[r][c] === 0) {
       if (myRole === 'p1') {
-        cellEl.classList.add('drag-preview-black');
+        cellEl.classList.add('drag-hover-black');
       } else if (myRole === 'p2') {
-        cellEl.classList.add('drag-preview-white');
+        cellEl.classList.add('drag-hover-white');
       }
     }
   }
@@ -718,45 +848,15 @@ function updateDragSelection(r, c) {
 function clearDragPreview() {
   const cells = board.querySelectorAll('.cell');
   cells.forEach(cell => {
-    cell.classList.remove('drag-preview-black', 'drag-preview-white', 'drag-preview-targetable');
+    cell.classList.remove('drag-hover-black', 'drag-hover-white', 'drag-hover-target');
   });
 }
 
-// Attach Drag & Drop Listeners to Board
-board.addEventListener('touchstart', (e) => {
-  if (e.touches.length > 0) {
-    handleDragStart(e.touches[0].clientX, e.touches[0].clientY);
-  }
-}, { passive: false });
-
-board.addEventListener('touchmove', (e) => {
-  if (e.touches.length > 0) {
-    handleDragMove(e.touches[0].clientX, e.touches[0].clientY, e);
-  }
-}, { passive: false });
-
-board.addEventListener('touchend', (e) => {
-  handleDragEnd();
-});
-
-let isBoardMouseDown = false;
-board.addEventListener('mousedown', (e) => {
-  isBoardMouseDown = true;
-  handleDragStart(e.clientX, e.clientY);
-});
-
-board.addEventListener('mousemove', (e) => {
-  if (isBoardMouseDown) {
-    handleDragMove(e.clientX, e.clientY, e);
-  }
-});
-
-window.addEventListener('mouseup', () => {
-  if (isBoardMouseDown) {
-    isBoardMouseDown = false;
-    handleDragEnd();
-  }
-});
+// Bind Listeners
+board.addEventListener('touchstart', handleTouchStart, { passive: true });
+board.addEventListener('touchmove', handleTouchMove, { passive: false });
+board.addEventListener('touchend', handleTouchEnd, { passive: false });
+board.addEventListener('click', handleMouseClick);
 
 
 // Skill descriptions mapping for long-press tooltips
@@ -803,8 +903,8 @@ const SKILL_DESCRIPTIONS = {
   },
   CLONE: {
     name: "🔮 无中生有 (复制)",
-    cost: "一次性卡牌",
-    desc: "选择自己的一颗棋子，将其原样复制到相邻的某个空格上。"
+    cost: "后置卡牌",
+    desc: "后置技能，只有在落子后才能使用！选择自己的一颗棋子，将其原样复制到相邻的某个空格上。"
   },
   MEDITATE: {
     name: "🧘 冥想 (摸牌)",
@@ -946,7 +1046,19 @@ function isCellValidTarget(r, c) {
 
 // Perform skill invocation with targeted parameters
 function executeSkillTargetClick(r, c) {
-  if (!isCellValidTarget(r, c)) return;
+  if (!isCellValidTarget(r, c)) {
+    let errMsg = '无效的目标位置！';
+    if (targetingMode === 'CONVERT') errMsg = '只能转化对方的棋子！';
+    else if (targetingMode === 'SWAP') errMsg = '只能选择己方的棋子！';
+    else if (targetingMode === 'SWAP_OPP') errMsg = '只能选择对方的棋子！';
+    else if (targetingMode === 'CLONE') errMsg = '只能复制你自己的棋子！';
+    else if (targetingMode === 'CLONE_DEST') errMsg = '只能复制到相邻的空格！';
+    else if (targetingMode === 'BARRIER') errMsg = '只能放置在空格上！';
+    else if (targetingMode === 'FOG') errMsg = '只能放置在空格上！';
+    
+    showToast(errMsg, 'error');
+    return;
+  }
 
   const skillId = targetingMode === 'SWAP_OPP' ? 'SWAP' : (targetingMode === 'CLONE_DEST' ? 'CLONE' : targetingMode);
   let params = {};
@@ -1048,7 +1160,8 @@ function updateDrawCardBtnState(room) {
     drawCardBtn.className = 'glow-btn-orange';
   } else {
     drawCardBtn.disabled = true;
-    drawCardBtn.textContent = `🚫 禁摸 (🎲 ${room.currentTurnDice}点)`;
+    const isOdd = room.currentTurnDice % 2 !== 0;
+    drawCardBtn.textContent = isOdd ? `✅ 已摸牌 (🎲 ${room.currentTurnDice}点)` : `🚫 禁摸 (🎲 ${room.currentTurnDice}点)`;
     drawCardBtn.className = 'glow-btn-orange disabled';
   }
 }
@@ -1098,7 +1211,7 @@ socket.on('chatMessage', ({ name, text, time }) => {
 
 // Alert Notifications from server
 socket.on('notification', ({ type, message }) => {
-  alert(message);
+  showToast(message, type || 'info');
 });
 
 // Trigger Coquetry Heart Overlay
@@ -1159,7 +1272,9 @@ rematchBtn.addEventListener('click', () => {
 // Hand cards event handler
 socket.on('handCards', ({ cards }) => {
   myHandCards = cards;
-  socket.emit('requestStateRefresh');
+  if (lastRoomState) {
+    renderHandCards(lastRoomState);
+  }
   synth.playCardDrawSound();
 });
 
