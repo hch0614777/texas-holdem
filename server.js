@@ -863,7 +863,7 @@ function handleShowdown(room) {
   // Set timeout to clear and prepare next hand
   setTimeout(() => {
     endHand(room);
-  }, 8000);
+  }, 3500);
 }
 
 // Clean up after a hand and wait/restart
@@ -890,7 +890,7 @@ function endHand(room) {
   if (activePlayersCount >= 2) {
     io.to(room.roomId).emit('chatMessage', {
       name: '系统',
-      text: '准备开始下一局，3秒后发牌...',
+      text: '准备开始下一局，1.5秒后发牌...',
       time: new Date().toLocaleTimeString()
     });
     setTimeout(() => {
@@ -899,7 +899,7 @@ function endHand(room) {
         const checkCount = room.players.filter(p => p !== null && p.chips > 0).length;
         if (checkCount >= 2) startNewHand(room);
       }
-    }, 3000);
+    }, 1500);
   }
 }
 

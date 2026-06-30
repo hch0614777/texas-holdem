@@ -85,6 +85,9 @@ let isMyTurn = false;
 let myCurrentBet = 0;
 let myChips = 0;
 let roomState = null;
+let myCards = [];
+let myHandDescription = '';
+let myCardsFolded = false;
 
 // DOM Elements
 const lobbyScreen = document.getElementById('lobby-screen');
@@ -226,6 +229,9 @@ socket.on('chatMessage', ({ name, text, time }) => {
 
 // Private hole cards dealt to this player
 socket.on('playerCards', ({ cards, folded, handDescription }) => {
+  myCards = cards;
+  myCardsFolded = folded;
+  myHandDescription = handDescription;
   if (mySeatIndex !== -1 && roomState) {
     renderPlayerCards(mySeatIndex, cards, folded, handDescription);
   }
@@ -246,11 +252,26 @@ socket.on('roomState', (state) => {
     mySeatIndex = -1;
     myChips = 0;
     myCurrentBet = 0;
+    myCards = [];
+    myHandDescription = '';
+    myCardsFolded = false;
     standBtn.style.display = 'none';
+  }
+
+  // Clear local cards if game transitions to waiting
+  if (state.gameState === 'waiting') {
+    myCards = [];
+    myHandDescription = '';
+    myCardsFolded = false;
   }
 
   // 1. Render Seats
   renderSeats(state);
+
+  // Restore my own cards if seated
+  if (mySeatIndex !== -1 && myCards && myCards.length > 0) {
+    renderPlayerCards(mySeatIndex, myCards, myCardsFolded, myHandDescription);
+  }
 
   // 2. Render Community Cards
   renderCommunityCards(state.communityCards);
